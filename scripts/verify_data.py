@@ -126,7 +126,9 @@ def dataset_required_paths(
     return result
 
 
-def provider_required_paths(manifest: Mapping[str, Any]) -> Tuple[Set[Path], Path]:
+def provider_required_paths(
+    manifest: Mapping[str, Any], datasets: Sequence[str]
+) -> Tuple[Set[Path], Path]:
     provider = manifest.get("qlib_provider")
     if not isinstance(provider, Mapping):
         raise ValueError("manifest.qlib_provider must be an object")
@@ -137,11 +139,13 @@ def provider_required_paths(manifest: Mapping[str, Any]) -> Tuple[Set[Path], Pat
     anchors = {
         provider_manifest,
         root / "calendars/day.txt",
-        root / "instruments/csi300.txt",
-        root / "instruments/csi800.txt",
         root / "features/sh000300/close.day.bin",
         root / "features/sh000906/close.day.bin",
     }
+    if "short_csi300" in datasets:
+        anchors.add(root / "instruments/csi300.txt")
+    if "short_csi800_direct" in datasets:
+        anchors.add(root / "instruments/csi800.txt")
     return anchors, root
 
 
@@ -241,7 +245,7 @@ def main() -> int:
     manifest = load_manifest(manifest_path)
     datasets = tuple(args.dataset or EXPECTED_DATASETS)
     required = dataset_required_paths(manifest, datasets)
-    provider_anchors, provider_root = provider_required_paths(manifest)
+    provider_anchors, provider_root = provider_required_paths(manifest, datasets)
     required.update(provider_anchors)
     records = inventory_records(manifest)
 

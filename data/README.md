@@ -2,6 +2,9 @@
 
 此目录只在 Git 中保留说明文件。训练 sampler、责任特征和 Qlib provider 体积较大，应通过版本化数据归档下载，并由 `manifest.json` 绑定身份。
 
+这些文件既可以从个人网盘直接解压，也可以由仓库中的数据构建脚本从本地 Qlib
+provider 重新生成；完整命令见 `docs/DATA_BUILD.md`。
+
 Python pickle 不是安全的交换格式，反序列化不可信 pickle 可能执行任意代码。只从已确认身份的发布者获取数据，并在训练前核对归档和文件 SHA-256；校验值只能确认文件身份，不能替代对发布来源的信任。
 
 ## 预期布局
@@ -36,6 +39,10 @@ data/
         ├── instruments/
         └── features/
 ```
+
+上图是预生成私有数据包的默认布局。从完整原始 provider 重建时，provider 可以位于
+`data/source/qlib_bin/`；实际位置由 `manifest.json` 的 `qlib_provider.path` 指定，
+训练和回测代码不依赖固定机器绝对路径。
 
 两个 sampler 都使用 8 日窗口，每个样本最后一维共 222 个字段：158 个股因子、63 个市场特征和 1 个标签。责任特征与 sampler 的行顺序必须由相同 index SHA-256 绑定，不能仅按行数猜测对齐关系。
 

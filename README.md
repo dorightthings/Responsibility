@@ -20,6 +20,8 @@ Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
 - 公开模型名：`ResponsibilityModel`。
 - 核心模块：CRFR（Consensus Responsibility Factor Routing）和 RRCA（Responsibility-Routed Cross-sectional Aggregation）。
 - 数据集：`short_csi300` 与 `short_csi800_direct`。
+- `short_csi800_direct` 沿用冻结 provider 的作者兼容直接 CSI800 口径，并保留其已知
+  的早期历史成分截断；它不是重新合成的 CSI300+CSI500 股票池。
 - 正式矩阵：两个数据集分别运行 seeds `0,1,2,3,4`，共 10 个任务。
 - 默认回测：Qlib `TopkDropoutStrategy(topk=30, n_drop=30)`，headline 为不计手续费的 `excess_return_without_cost` AR/IR。
 - 当前结果属于开发期重复测试证据（`development/repeated-test`），不应描述为从未查看过的独立测试集验证。
@@ -51,7 +53,8 @@ python -m pip install -e .
 
 ## 3. 准备数据
 
-训练数据、责任特征和 Qlib provider 合计约 3.5 GB，不直接存入普通 Git 历史。数据发布者可以将它们放在 GitHub Release、Git LFS 或其他对象存储中；仓库本身不写死下载地址。
+训练数据、责任特征和 Qlib provider 合计约 3.5 GB，不直接存入普通 Git 历史。
+在两台个人机器之间，推荐把数据包放在自己的网盘，GitHub 只同步代码与配置。
 
 下载一个数据归档：
 
@@ -77,6 +80,10 @@ python scripts/verify_data.py --data-root data --quick
 ```
 
 预期数据布局及 manifest 约定见 [data/README.md](data/README.md)。
+
+仓库也包含完整数据构建代码。需要从冻结 Qlib provider 重新生成 sampler、股票状态、
+规则特征和方向尺度时，按 [数据获取与重建](docs/DATA_BUILD.md) 操作。直接使用已生成
+数据包更快；重新生成适合以后修改数据区间、股票池或特征定义。
 
 ## 4. Smoke test
 
@@ -166,14 +173,22 @@ python scripts/summarize.py \
 Responsibility/
 ├── configs/                 # 两个冻结数据集的配置
 ├── data/                    # 下载后的数据；Git 只保留说明文件
-├── docs/                    # 方法、复现和数据许可说明
-├── scripts/                 # 训练、批量、评价、汇总、下载和校验入口
-├── src/                     # ResponsibilityModel、CRFR、RRCA 与公共组件
+├── docs/                    # 方法、数据构建、双机联动和许可说明
+├── results/experiments/     # 可提交 Git 的轻量实验摘要
+├── scripts/                 # 数据构建、训练、评价、汇总和打包入口
+├── src/                     # 模型、训练组件与 preprocessing
 ├── environment.yml
 ├── pyproject.toml
 └── README.md
 ```
 
-## 9. 引用与许可
+## 9. 两台机器联动
+
+两台机器分别配置本仓库的 SSH key，然后都通过同一 GitHub 地址拉取和推送。代码、
+YAML 和轻量结果摘要进 Git；数据、checkpoint、prediction 和完整日志放本地或个人
+网盘。具体命令见 [两台机器联动](docs/TWO_MACHINE_WORKFLOW.md)。不同机器不要求跑出
+逐位相同的结果，只需记录各自使用的 commit、data manifest、配置和 seed。
+
+## 10. 引用与许可
 
 代码许可见 [LICENSE](LICENSE)，复用组件和第三方项目说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，引用元数据见 [CITATION.cff](CITATION.cff)。代码许可不自动覆盖数据、指数成分、模型权重或第三方内容；分发和使用数据前请单独确认其许可。

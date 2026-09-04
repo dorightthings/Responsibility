@@ -23,6 +23,12 @@ data/*
 !data/manifest.example.json
 *.part
 *.tmp
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.rar
 
 # Experiment outputs
 outputs/
