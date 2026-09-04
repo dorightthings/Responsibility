@@ -1,0 +1,38 @@
+schema_version: responsibility-experiment-v1
+dataset: short_csi300
+beta: 5.0
+benchmark: SH000300
+bridge_date: "2020-06-30"
+
+model:
+  d_feat: 158
+  d_model: 256
+  t_nhead: 4
+  s_nhead: 2
+  temporal_dropout: 0.5
+  cross_section_dropout: 0.5
+  gate_input_start_index: 158
+  gate_input_end_index: 221
+  gate_mode: shared
+  adapter_rank: 32
+  alpha_initial: 0.1
+  rho_initial: 0.1
+
+training:
+  max_epochs: 150
+  smoke_epochs: 2
+  threshold: 0.95
+  base_learning_rate: 1.0e-5
+  crfr_learning_rate: 1.0e-4
+  rrca_adapter_learning_rate: 1.0e-5
+  rrca_condition_learning_rate: 1.0e-4
+  gradient_clip_value: 3.0
+  selection_temperature_start: 1.0
+  selection_temperature_end: 0.5
+  selection_temperature_anneal_epochs: 10
+
+backtest:
+  topk: 30
+  n_drop: 30
+  account: 100000000
+  deal_price: close

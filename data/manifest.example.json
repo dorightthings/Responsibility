@@ -1,0 +1,186 @@
+{
+  "schema_version": "responsibility-data-manifest-v1",
+  "data_version": "responsibility-short-v1",
+  "archive_url": "<VERSIONED_DATA_ARCHIVE_URL>",
+  "archive_sha256": "<OPTIONAL_ARCHIVE_SHA256>",
+  "datasets": {
+    "short_csi300": {
+      "samplers": {
+        "train": "samplers/short_csi300/train.pkl",
+        "valid": "samplers/short_csi300/valid.pkl",
+        "test": "samplers/short_csi300/test.pkl"
+      },
+      "responsibility_root": "responsibility/short_csi300",
+      "direction_scale": "direction_scales/short_csi300.json"
+    },
+    "short_csi800_direct": {
+      "samplers": {
+        "train": "samplers/short_csi800_direct/train.pkl",
+        "valid": "samplers/short_csi800_direct/valid.pkl",
+        "test": "samplers/short_csi800_direct/test.pkl"
+      },
+      "responsibility_root": "responsibility/short_csi800_direct",
+      "direction_scale": "direction_scales/short_csi800_direct.json"
+    }
+  },
+  "qlib_provider": {
+    "path": "qlib/cn_data",
+    "manifest": "qlib/PROVIDER_MANIFEST.json"
+  },
+  "files": [
+    {
+      "path": "samplers/short_csi300/train.pkl",
+      "bytes": 802335705,
+      "required": true
+    },
+    {
+      "path": "samplers/short_csi300/valid.pkl",
+      "bytes": 18348355,
+      "required": true
+    },
+    {
+      "path": "samplers/short_csi300/test.pkl",
+      "bytes": 170831613,
+      "required": true
+    },
+    {
+      "path": "samplers/short_csi800_direct/train.pkl",
+      "bytes": 1656834511,
+      "required": true
+    },
+    {
+      "path": "samplers/short_csi800_direct/valid.pkl",
+      "bytes": 48864321,
+      "required": true
+    },
+    {
+      "path": "samplers/short_csi800_direct/test.pkl",
+      "bytes": 454385095,
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/manifest.json",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/train/stock_state.npy",
+      "bytes": 47949904,
+      "shape": [856246, 14],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/train/rule_components.npy",
+      "bytes": 27400000,
+      "shape": [856246, 8],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/valid/stock_state.npy",
+      "bytes": 991328,
+      "shape": [17700, 14],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/valid/rule_components.npy",
+      "bytes": 566528,
+      "shape": [17700, 8],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/test/stock_state.npy",
+      "bytes": 10264928,
+      "shape": [183300, 14],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi300/test/rule_components.npy",
+      "bytes": 5865728,
+      "shape": [183300, 8],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/manifest.json",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/train/stock_state.npy",
+      "bytes": 98433120,
+      "shape": [1757732, 14],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/train/rule_components.npy",
+      "bytes": 56247552,
+      "shape": [1757732, 8],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/valid/stock_state.npy",
+      "bytes": 2643328,
+      "shape": [47200, 14],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/valid/rule_components.npy",
+      "bytes": 1510528,
+      "shape": [47200, 8],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/test/stock_state.npy",
+      "bytes": 27368504,
+      "shape": [488721, 14],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "responsibility/short_csi800_direct/test/rule_components.npy",
+      "bytes": 15639200,
+      "shape": [488721, 8],
+      "dtype": "float32",
+      "required": true
+    },
+    {
+      "path": "direction_scales/short_csi300.json",
+      "required": true
+    },
+    {
+      "path": "direction_scales/short_csi800_direct.json",
+      "required": true
+    },
+    {
+      "path": "qlib/PROVIDER_MANIFEST.json",
+      "required": true
+    },
+    {
+      "path": "qlib/cn_data/calendars/day.txt",
+      "required": true
+    },
+    {
+      "path": "qlib/cn_data/instruments/csi300.txt",
+      "required": true
+    },
+    {
+      "path": "qlib/cn_data/instruments/csi800.txt",
+      "required": true
+    },
+    {
+      "path": "qlib/cn_data/features/sh000300/close.day.bin",
+      "required": true
+    },
+    {
+      "path": "qlib/cn_data/features/sh000906/close.day.bin",
+      "required": true
+    }
+  ]
+}

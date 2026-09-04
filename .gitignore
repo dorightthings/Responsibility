@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments and editors
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+*.swp
+
+# Downloaded datasets and temporary archives
+data/*
+!data/README.md
+!data/manifest.example.json
+*.part
+*.tmp
+
+# Experiment outputs
+outputs/
+runs/
+logs/
+checkpoints/
+predictions/
+*.pkl
+*.pth
+*.pt
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below and also cite the upstream works listed in THIRD_PARTY_NOTICES.md."
+title: "Responsibility: Consensus Responsibility-Guided Evidence Selection and Transmission for Stock Prediction"
+type: software
+authors:
+  - family-names: "dorightthings"
+version: 0.1.0
+date-released: 2026-09-04
+repository-code: "https://github.com/dorightthings/Responsibility"
+url: "https://github.com/dorightthings/Responsibility"
+license: MIT
+keywords:
+  - stock prediction
+  - quantitative finance
+  - responsibility routing
+  - cross-sectional aggregation
