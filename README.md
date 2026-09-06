@@ -2,7 +2,7 @@
 
 `ResponsibilityModel` 是一套面向股票收益预测的责任机制模型。它用同一组动态机制责任，同时回答两个问题：当前应重点采用哪些因子证据，以及一只股票应从哪些机制群体中获取跨股票信息。
 
-本仓库发布的是当前保留路线：
+本仓库发布的是当前选定的统一学习率开发底座，便于在不同机器上从相同代码和数据开始各自的改进实验：
 
 ```text
 Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
@@ -19,6 +19,8 @@ Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
 
 - 公开模型名：`ResponsibilityModel`。
 - 核心模块：CRFR（Consensus Responsibility Factor Routing）和 RRCA（Responsibility-Routed Cross-sectional Aggregation）。
+- 保留原有 stock-specific RRCA 路由及初始化，不使用路由梯度分离（detach），不加入新的初始化方案。
+- 整个模型使用一个 Adam 参数组；唯一学习率配置字段为 `training.learning_rate`，CSI300 为 `2e-5`，CSI800 为 `1e-5`，训练期间固定不变。
 - 数据集：`short_csi300` 与 `short_csi800_direct`。
 - `short_csi800_direct` 沿用冻结 provider 的作者兼容直接 CSI800 口径，并保留其已知
   的早期历史成分截断；它不是重新合成的 CSI300+CSI500 股票池。
@@ -122,6 +124,8 @@ python scripts/run_batch.py \
 
 24 GiB 显卡可以在确认显存余量后提高并发，但不同显卡应从 `--jobs-per-gpu 1` 开始。不要复用已有输出目录，也不要覆盖已有 checkpoint、prediction 或回测文件。
 
+每个训练任务会写入 `optimizer.json`，记录实际学习率、参数组数量和作用范围，便于确认整个模型使用同一个学习率。
+
 若训练入口与评价入口分开，使用：
 
 ```bash
@@ -135,20 +139,23 @@ python scripts/summarize.py \
 
 ## 6. 参考结果
 
-当前保留路线的五 seed 均值如下，其中 AR/IR 均采用 `excess_return_without_cost`，仅用于核对公开实现是否运行在同一数量级：
+当前统一学习率开发底座的五 seed 均值 ± 总体标准差（population standard deviation，`ddof=0`）如下。两组均保留 CRFR＋原 stock-specific RRCA，不使用 detach；Top30/Drop30 的 AR/IR 均采用 `excess_return_without_cost`，AR 使用小数形式（例如 `0.297308` 表示约 `29.73%`）：
 
 | 数据集 | IC | ICIR | RankIC | RankICIR | AR | IR |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| CSI300 | 0.063193 | 0.427724 | 0.070383 | 0.452838 | 0.289768 | 2.441118 |
-| CSI800-Direct | 0.048456 | 0.397653 | 0.064430 | 0.493185 | 0.279905 | 2.087752 |
+| CSI300 | 0.057674 ± 0.005655 | 0.383250 ± 0.044031 | 0.069350 ± 0.003849 | 0.452649 ± 0.034287 | 0.297308 ± 0.056426 | 2.522038 ± 0.420316 |
+| CSI800 | 0.047661 ± 0.003485 | 0.395893 ± 0.045613 | 0.061988 ± 0.002760 | 0.489023 ± 0.026603 | 0.293114 ± 0.052997 | 2.250111 ± 0.401712 |
 
-完整均值、population standard deviation 和协议记录位于 `results/reference/`。这些是 `development/repeated-test` 结果，不构成未见测试集上的独立验证。跨 GPU/CUDA 的复现不要求逐位相等。
+完整精度的均值、标准差、逐 seed 数值和协议记录位于 [results/reference_uniform_lr/](results/reference_uniform_lr/)，seeds 为 `0,1,2,3,4`。这些是 `development/repeated-test` 开发参考结果，不是未见测试集上的独立验证，也不是异机运行必须达到的数值目标。
+
+原 [results/reference/](results/reference/) 保留历史分组学习率路线及其对照结果，文件和数值未改动；它不再是当前统一学习率实现的参考结果。两台机器只需从相同代码、配置和数据开始，可以分别改进并将有效版本推到各自分支，不要求最终结果相同。
 
 ## 7. 冻结实验口径
 
-| 项目 | CSI300 | CSI800-Direct |
+| 项目 | CSI300 | CSI800 |
 | --- | --- | --- |
 | `beta` | 5 | 2 |
+| `training.learning_rate` | `2e-5` | `1e-5` |
 | benchmark | `SH000300` | `SH000906` |
 | train | 2008-01-02 至 2020-03-31 | 同左 |
 | valid | 2020-04-01 至 2020-06-30 | 同左 |
@@ -160,12 +167,12 @@ python scripts/summarize.py \
 - lookback `T=8`；输入为 158 个股因子、63 个市场特征和 1 个标签字段；
 - 标签为 `Ref($close, -5) / Ref($close, -1) - 1`；
 - 训练时按日去除上下各 2.5% 极端标签，再做横截面 z-score；
-- Adam；主干与 RRCA context body 学习率 `1e-5`，CRFR 与 RRCA condition 学习率 `1e-4`；
+- Adam 单参数组：主干、CRFR、RRCA context body 与 condition 共用当前数据集的 `training.learning_rate`，无模块级学习率和学习率调度器；
 - 责任选择温度从 `1.0` 线性退火到 `0.5`，前 10 epochs 完成；
 - 梯度裁剪绝对值 `3.0`；最多 150 epochs；首次日均 TrainMSE `<=0.95` 时停止；
 - 正式回测使用 Top30/Drop30，headline 为无手续费 AR/IR。
 
-具体机器、CUDA 和底层算子不同可能造成浮点末位及最终指标差异。复现目标应优先定义为协议一致、产物完整和指标处于冻结容差内，而不是跨硬件逐字节一致。
+具体机器、CUDA 和底层算子不同可能造成最终指标差异。这里提供共同的代码和数据起点；后续实验可各自调整配置和方法，只需记录版本、数据、配置与结果。学习率修改只使用 `training.learning_rate`，不要沿用旧的四个模块级学习率字段。
 
 ## 8. 仓库结构
 

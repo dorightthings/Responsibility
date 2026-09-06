@@ -30,7 +30,7 @@ from .io import atomic_csv, atomic_json, atomic_text, utc_now
 from .metrics import daily_metrics, labels_from_sampler, normalize_prediction
 
 
-PROTOCOL = "responsibility-crfr-rrca-portable-v1"
+PROTOCOL = "responsibility-crfr-rrca-uniform-lr-portable-v2"
 
 
 def set_global_seed(seed: int) -> None:
@@ -93,6 +93,9 @@ def _parameter_names(model: torch.nn.Module, method: str) -> Tuple[str, ...]:
 def build_optimizer(
     model: torch.nn.Module, config: ExperimentConfig
 ) -> Tuple[torch.optim.Optimizer, Dict[str, Any]]:
+    """Use one Adam group; component names below are only parameter counts."""
+    if not math.isfinite(config.learning_rate) or config.learning_rate <= 0.0:
+        raise ValueError("learning_rate must be positive and finite")
     named = list(model.named_parameters())
     all_names = {name for name, _ in named}
     g1_names = set(_parameter_names(model, "g1_module_parameter_names"))
@@ -106,7 +109,7 @@ def build_optimizer(
         raise ValueError("model parameter groups name unknown tensors: %s" % sorted(unknown))
     master_names = all_names - set().union(*groups)
     if not all((master_names, g1_names, context_names, condition_names)):
-        raise ValueError("all four released parameter groups must be non-empty")
+        raise ValueError("all four model components must have named parameters")
 
     def parameters(names: set) -> List[torch.nn.Parameter]:
         return [parameter for name, parameter in named if name in names]
@@ -115,22 +118,12 @@ def build_optimizer(
     context_parameters = parameters(context_names)
     g1_parameters = parameters(g1_names)
     condition_parameters = parameters(condition_names)
-    if config.crfr_learning_rate != config.rrca_condition_learning_rate:
-        raise ValueError("the released CRFR and RRCA rho learning rates must match")
-    optimizer = torch.optim.Adam(
-        [
-            {
-                "params": master_parameters + context_parameters,
-                "lr": config.base_learning_rate,
-                "group_name": "backbone_and_rrca_adapters",
-            },
-            {
-                "params": g1_parameters + condition_parameters,
-                "lr": config.crfr_learning_rate,
-                "group_name": "crfr_and_rrca_rho",
-            },
-        ]
-    )
+    trainable_parameters = [
+        parameter for _, parameter in named if parameter.requires_grad
+    ]
+    if not trainable_parameters:
+        raise ValueError("the model has no trainable parameters")
+    optimizer = torch.optim.Adam(trainable_parameters, lr=config.learning_rate)
     counts = {
         "total": int(sum(parameter.numel() for _, parameter in named)),
         "backbone": int(sum(parameter.numel() for parameter in master_parameters)),
@@ -334,6 +327,22 @@ def train_one_seed(
 
     model = _model(config, seed, device)
     optimizer, parameter_counts = build_optimizer(model, config)
+    optimizer_metadata = {
+        "name": "Adam",
+        "learning_rate": float(optimizer.param_groups[0]["lr"]),
+        "parameter_group_count": len(optimizer.param_groups),
+        "trainable_parameter_count": int(
+            sum(
+                parameter.numel()
+                for parameter in optimizer.param_groups[0]["params"]
+            )
+        ),
+        "scope": "all_trainable_model_parameters",
+        "scheduler": None,
+        "gradient_clip_value": config.gradient_clip_value,
+        "conflict_weight": 0.0,
+    }
+    atomic_json(run_dir / "optimizer.json", optimizer_metadata)
     direction_scale, scale_payload = load_direction_scale(
         paths.direction_scale, config.dataset, device
     )
@@ -459,7 +468,8 @@ def train_one_seed(
         "seed": seed,
         "mode": mode,
         "model": "ResponsibilityModel",
-        "method": "CRFR+stock-specific RRCA",
+        "method": "CRFR+stock-specific RRCA+uniform learning rate",
+        "route_detached": False,
         "selection": {
             "rule": (
                 "fixed_2_epoch_smoke"
@@ -492,14 +502,7 @@ def train_one_seed(
         },
         "metric_details": metrics,
         "parameter_counts": parameter_counts,
-        "optimizer": {
-            "name": "Adam",
-            "base_and_rrca_adapter_lr": config.base_learning_rate,
-            "crfr_lr": config.crfr_learning_rate,
-            "rrca_condition_lr": config.rrca_condition_learning_rate,
-            "gradient_clip_value": config.gradient_clip_value,
-            "conflict_weight": 0.0,
-        },
+        "optimizer": optimizer_metadata,
         "data": {
             "train": train_description,
             "valid": valid_description,

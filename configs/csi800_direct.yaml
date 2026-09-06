@@ -1,4 +1,4 @@
-schema_version: responsibility-experiment-v1
+schema_version: responsibility-experiment-v2
 dataset: short_csi800_direct
 beta: 2.0
 benchmark: SH000906
@@ -22,10 +22,7 @@ training:
   max_epochs: 150
   smoke_epochs: 2
   threshold: 0.95
-  base_learning_rate: 1.0e-5
-  crfr_learning_rate: 1.0e-4
-  rrca_adapter_learning_rate: 1.0e-5
-  rrca_condition_learning_rate: 1.0e-4
+  learning_rate: 1.0e-5
   gradient_clip_value: 3.0
   selection_temperature_start: 1.0
   selection_temperature_end: 0.5

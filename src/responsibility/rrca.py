@@ -205,12 +205,12 @@ class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
             ).to(device=reference.device, dtype=reference.dtype)
 
     def g1_module_parameter_names(self) -> Tuple[str, ...]:
-        """Responsibility-factor-gate parameters; intended learning rate 1e-4."""
+        """Responsibility-factor-gate parameter names for diagnostics."""
 
         return tuple(super().new_module_parameter_names())
 
     def context_body_parameter_names(self) -> Tuple[str, ...]:
-        """Low-rank context adapters; intended learning rate 1e-5."""
+        """Low-rank context adapter parameter names for diagnostics."""
 
         return tuple(
             name
@@ -219,7 +219,7 @@ class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
         )
 
     def condition_parameter_names(self) -> Tuple[str, ...]:
-        """Residual-strength condition; intended learning rate 1e-4."""
+        """Residual-strength parameter name for diagnostics."""
 
         return tuple(
             name
