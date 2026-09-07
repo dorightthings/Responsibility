@@ -1,0 +1,127 @@
+{
+  "status": "reference_only",
+  "reference_version": "four-mechanism-memory-uniform-lr-20260907",
+  "implementation_protocol": "responsibility-crfr-rrca-mechanism-memory-uniform-lr-portable-v3",
+  "method": "CRFR + stock-specific RRCA + four-mechanism context memory + single-group Adam",
+  "route_detach": false,
+  "initialization": "original_parameters_unchanged; four_new_memory_logits_zero_initialized",
+  "evidence_scope": "development/repeated-test",
+  "independent_holdout": false,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "std_definition": "population standard deviation across seeds, ddof=0",
+  "metric_order": [
+    "IC",
+    "ICIR",
+    "RankIC",
+    "RankICIR",
+    "AR_without_cost",
+    "IR_without_cost"
+  ],
+  "ar_unit": "fraction_per_year",
+  "lookback": 8,
+  "label": "Ref($close, -5) / Ref($close, -1) - 1",
+  "boundary": "no_purge",
+  "split": {
+    "train": [
+      "2008-01-02",
+      "2020-03-31"
+    ],
+    "valid": [
+      "2020-04-01",
+      "2020-06-30"
+    ],
+    "test": [
+      "2020-07-01",
+      "2022-12-30"
+    ],
+    "bridge": "2020-06-30"
+  },
+  "training": {
+    "optimizer": "Adam",
+    "optimizer_group_count": 1,
+    "parameter_group": "all_trainable_parameters",
+    "learning_rate_config_field": "training.learning_rate",
+    "learning_rate_schedule": "fixed_no_scheduler",
+    "max_epochs": 150,
+    "stop_rule": "first epoch with mean TrainMSE <= 0.95, otherwise epoch 150",
+    "gradient_clip_value": 3
+  },
+  "datasets": {
+    "short_csi300": {
+      "display_name": "CSI300",
+      "training": {
+        "learning_rate": 0.00002
+      },
+      "beta": 5,
+      "benchmark": "SH000300",
+      "source_run_id": "crfr_rrca_mechanism_memory_v1_20260906T130241Z",
+      "source_job_pattern": "recovery_20260906T175007876235Z/jobs/MECHANISM_MEMORY/short_csi300/seed{seed}/result.json",
+      "source_recovery_id": "recovery_20260906T175007876235Z"
+    },
+    "short_csi800_direct": {
+      "display_name": "CSI800",
+      "training": {
+        "learning_rate": 0.00001
+      },
+      "beta": 2,
+      "benchmark": "SH000906",
+      "source_run_id": "crfr_rrca_mechanism_memory_v1_20260906T130241Z",
+      "source_job_pattern": "recovery_20260906T175007876235Z/jobs/MECHANISM_MEMORY/short_csi800_direct/seed{seed}/result.json",
+      "source_recovery_id": "recovery_20260906T175007876235Z"
+    }
+  },
+  "backtest": {
+    "strategy": "TopkDropoutStrategy",
+    "topk": 30,
+    "n_drop": 30,
+    "headline": "excess_return_without_cost"
+  },
+  "files": {
+    "summary": "five_seed_summary.csv",
+    "per_seed": "per_seed.csv"
+  },
+  "portability": "Shared initial code, configuration and data; different machines may run independent improvements and need not produce equal results.",
+  "parameter_count": 846233,
+  "memory": {
+    "mode": "mechanism_specific",
+    "parameter_name": "mechanism_context.raw_memory",
+    "parameter_count": 4,
+    "initial_logits": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "initial_coefficients": [
+      0.5,
+      0.5,
+      0.5,
+      0.5
+    ],
+    "recurrence": "m[k,0]=c[k,0]; m[k,t]=sigmoid(a[k])*m[k,t-1]+(1-sigmoid(a[k]))*c[k,t]",
+    "position": "after_source_context_aggregation_before_existing_adapters",
+    "state_scope": "reset_for_each_input_window",
+    "coefficient_order": [
+      "market_explained_continuation",
+      "market_explained_reversal",
+      "idiosyncratic_residual_continuation",
+      "idiosyncratic_residual_reversal"
+    ],
+    "separate_learning_rate": false
+  },
+  "publication": {
+    "previous_no_memory_commit": "60e5a58fc7e59f68eee5015f0789ee0bf527d3bb",
+    "retrained_for_publication": false,
+    "reevaluated_for_publication": false
+  },
+  "historical_references": [
+    "../reference_uniform_lr/",
+    "../reference/"
+  ]
+}

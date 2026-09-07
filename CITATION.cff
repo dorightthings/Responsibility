@@ -4,8 +4,8 @@ title: "Responsibility: Consensus Responsibility-Guided Evidence Selection and T
 type: software
 authors:
   - family-names: "dorightthings"
-version: 0.2.0
-date-released: 2026-09-06
+version: 0.3.0
+date-released: 2026-09-07
 repository-code: "https://github.com/dorightthings/Responsibility"
 url: "https://github.com/dorightthings/Responsibility"
 license: MIT

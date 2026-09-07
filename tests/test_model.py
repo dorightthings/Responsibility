@@ -82,6 +82,10 @@ class ResponsibilityModelTest(unittest.TestCase):
         self.assertIsNotNone(model.feature_gate.trans.weight.grad)
         self.assertIsNotNone(model.mechanism_preference.grad)
         self.assertIsNotNone(model.mechanism_context.rho_logit.grad)
+        self.assertIsNotNone(model.mechanism_context.raw_memory.grad)
+        self.assertGreater(model.mechanism_context.raw_memory.grad.abs().sum().item(), 0.0)
+        self.assertEqual(auxiliary["memory_mechanism_contexts"].shape, (4, steps, 256))
+        self.assertEqual(auxiliary["memory_coefficients"].shape, (4,))
 
     def test_fusion_disabled_matches_unmodified_backbone_path(self) -> None:
         torch.manual_seed(13)

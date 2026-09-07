@@ -8,8 +8,9 @@
 - seeds：`0,1,2,3,4`。
 - 训练：Adam；最多 150 epochs；首次日均 TrainMSE `<=0.95` 时停止。
 - 标签：按日去除上下各 2.5% 极端值，再做横截面样本标准差 z-score。
-- 模型：CRFR＋原 stock-specific RRCA；保留原路由梯度及初始化，不使用 detach 或新的初始化方案。
-- 学习率：仅使用 `training.learning_rate`；CSI300 为 `2e-5`，CSI800 为 `1e-5`。主干、CRFR、RRCA body 与 condition 全部放入同一个 Adam 参数组，共用固定学习率，不使用模块级学习率或学习率调度器。
+- 模型：CRFR＋stock-specific RRCA＋四机制时间记忆，总参数量 846233；保留原路由梯度及原参数初始化，不使用 detach 或新的选择头初始化方案。
+- 记忆：四个零初始化的可学习 logit，sigmoid 后初值均为 0.5；在源上下文与原机制变换之间做窗口内递推，每次调用重置记忆。
+- 学习率：仅使用 `training.learning_rate`；CSI300 为 `2e-5`，CSI800 为 `1e-5`。主干、CRFR、RRCA body、condition 与记忆参数全部放入同一个 Adam 参数组，共用固定学习率，不使用模块级学习率或学习率调度器。
 - 责任选择温度：从 `1.0` 线性退火至 `0.5`，前 10 epochs 完成。
 - 回测：Top30/Drop30；headline 为 `excess_return_without_cost` AR/IR。
 
@@ -28,6 +29,7 @@
 
 - 完整命令、配置和环境版本；
 - `optimizer.json`：实际学习率、参数组数量和作用范围；
+- `result.json` 的 `memory` 字段：记忆模式、参数数目、初始及最终四个系数；
 - seed、设备和起止时间；
 - 训练历史与停止轮次；
 - 单一选定 checkpoint；
@@ -49,4 +51,6 @@
 
 当前方法是在同一测试期被重复评价后选出的开发路线，因此相关数值必须标记为 `development/repeated-test`。如果要声称独立验证，应冻结方法后使用未参与开发的新时间窗口或新数据集。
 
-当前统一学习率开发底座的六指标均值、总体标准差（`ddof=0`）、逐 seed 数值和协议见 [results/reference_uniform_lr/](../results/reference_uniform_lr/)。旧 [results/reference/](../results/reference/) 原样保留历史分组学习率结果，不作为当前实现的数值参考。新实验分别保存到自己的输出目录和分支，不覆盖旧产物。
+当前四机制记忆版的六指标均值、总体标准差（`ddof=0`）、逐 seed 数值和协议见 [results/reference_mechanism_memory/](../results/reference_mechanism_memory/)。
+[results/reference_uniform_lr/](../results/reference_uniform_lr/) 和 [results/reference/](../results/reference/) 分别原样保留无记忆统一学习率、历史分组学习率结果，不作为当前实现的数值参考。
+数据包及构建代码不变。旧无记忆 checkpoint 缺少四个记忆参数，应使用旧提交 `60e5a58` 运行旧模型，不静默补参数后混报结果。新实验分别保存到自己的输出目录和分支，不覆盖旧产物。

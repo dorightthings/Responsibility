@@ -2,14 +2,14 @@
 
 `ResponsibilityModel` 是一套面向股票收益预测的责任机制模型。它用同一组动态机制责任，同时回答两个问题：当前应重点采用哪些因子证据，以及一只股票应从哪些机制群体中获取跨股票信息。
 
-本仓库发布的是当前选定的统一学习率开发底座，便于在不同机器上从相同代码和数据开始各自的改进实验：
+本仓库发布的是当前保留的四机制记忆版（v0.3.0），使用统一学习率，便于在不同机器上从相同代码和数据开始各自的改进实验：
 
 ```text
 Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
     -> CRFR：共识责任因子路由
     -> 单股时序证据编码
     -> 基础截面信息编码
-    -> RRCA：责任路由截面聚合
+    -> RRCA：责任路由截面聚合（内含四机制时间记忆）
     -> 时间汇聚与未来收益预测
 ```
 
@@ -20,7 +20,9 @@ Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
 - 公开模型名：`ResponsibilityModel`。
 - 核心模块：CRFR（Consensus Responsibility Factor Routing）和 RRCA（Responsibility-Routed Cross-sectional Aggregation）。
 - 保留原有 stock-specific RRCA 路由及初始化，不使用路由梯度分离（detach），不加入新的初始化方案。
+- RRCA 在四类群体上下文形成后、原机制变换前进行窗口内时间平滑，每类机制有一个可学习系数；新增 4 个参数，总参数量为 `846233`。记忆每个输入窗口重新开始，不跨预测日保存状态。
 - 整个模型使用一个 Adam 参数组；唯一学习率配置字段为 `training.learning_rate`，CSI300 为 `2e-5`，CSI800 为 `1e-5`，训练期间固定不变。
+- 63 维市场特征、14 维股票状态、规则方向与数据构建方法均保持不变；新增记忆参数也使用上述统一学习率，没有额外手调的记忆超参数。
 - 数据集：`short_csi300` 与 `short_csi800_direct`。
 - `short_csi800_direct` 沿用冻结 provider 的作者兼容直接 CSI800 口径，并保留其已知
   的早期历史成分截断；它不是重新合成的 CSI300+CSI500 股票池。
@@ -29,6 +31,13 @@ Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
 - 当前结果属于开发期重复测试证据（`development/repeated-test`），不应描述为从未查看过的独立测试集验证。
 
 本项目仅用于研究，不构成任何投资建议。
+
+### 从无记忆版升级
+
+已有数据包可以继续使用，不需要重新生成 14 维状态或方向尺度。更新代码后重新执行
+`python -m pip install -e . --no-deps`，使用原有两个配置即可训练四机制记忆版，并为新实验选择新的输出目录。
+旧无记忆 checkpoint 缺少 `mechanism_context.raw_memory`，不能作为四机制记忆版直接严格加载；
+若要继续旧模型实验，请在独立工作目录使用旧提交 `60e5a58`，保留旧结果和 checkpoint。
 
 ## 2. 安装
 
@@ -139,16 +148,18 @@ python scripts/summarize.py \
 
 ## 6. 参考结果
 
-当前统一学习率开发底座的五 seed 均值 ± 总体标准差（population standard deviation，`ddof=0`）如下。两组均保留 CRFR＋原 stock-specific RRCA，不使用 detach；Top30/Drop30 的 AR/IR 均采用 `excess_return_without_cost`，AR 使用小数形式（例如 `0.297308` 表示约 `29.73%`）：
+当前四机制记忆版的五 seed 均值 ± 总体标准差（population standard deviation，`ddof=0`）如下。两组均为 CRFR＋stock-specific RRCA＋四机制时间记忆，使用统一学习率、不使用 detach；Top30/Drop30 的 AR/IR 均采用 `excess_return_without_cost`，AR 使用小数形式（例如 `0.300197` 表示约 `30.02%`）：
 
 | 数据集 | IC | ICIR | RankIC | RankICIR | AR | IR |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| CSI300 | 0.057674 ± 0.005655 | 0.383250 ± 0.044031 | 0.069350 ± 0.003849 | 0.452649 ± 0.034287 | 0.297308 ± 0.056426 | 2.522038 ± 0.420316 |
-| CSI800 | 0.047661 ± 0.003485 | 0.395893 ± 0.045613 | 0.061988 ± 0.002760 | 0.489023 ± 0.026603 | 0.293114 ± 0.052997 | 2.250111 ± 0.401712 |
+| CSI300 | 0.058402 ± 0.005356 | 0.389587 ± 0.042487 | 0.068651 ± 0.004484 | 0.448077 ± 0.036118 | 0.300197 ± 0.041422 | 2.520931 ± 0.306456 |
+| CSI800 | 0.047732 ± 0.003506 | 0.396697 ± 0.045869 | 0.062087 ± 0.002703 | 0.489920 ± 0.026110 | 0.292338 ± 0.056738 | 2.248818 ± 0.421200 |
 
-完整精度的均值、标准差、逐 seed 数值和协议记录位于 [results/reference_uniform_lr/](results/reference_uniform_lr/)，seeds 为 `0,1,2,3,4`。这些是 `development/repeated-test` 开发参考结果，不是未见测试集上的独立验证，也不是异机运行必须达到的数值目标。
+完整精度的均值、标准差、逐 seed 数值和协议记录位于 [results/reference_mechanism_memory/](results/reference_mechanism_memory/)，seeds 为 `0,1,2,3,4`。这些来自已完成的四机制记忆实验，本次发布没有重新训练或回测；它们是 `development/repeated-test` 开发参考结果，不是未见测试集上的独立验证，也不是异机运行必须达到的数值目标。
 
-原 [results/reference/](results/reference/) 保留历史分组学习率路线及其对照结果，文件和数值未改动；它不再是当前统一学习率实现的参考结果。两台机器只需从相同代码、配置和数据开始，可以分别改进并将有效版本推到各自分支，不要求最终结果相同。
+原 [results/reference_uniform_lr/](results/reference_uniform_lr/) 保留无记忆统一学习率版，
+[results/reference/](results/reference/) 保留历史分组学习率版；两者文件和数值均未改动。
+它们不是当前四机制记忆版的参考结果。两台机器只需从相同代码、配置和数据开始，可以分别改进并将有效版本推到各自分支，不要求最终结果相同。
 
 ## 7. 冻结实验口径
 
@@ -167,7 +178,7 @@ python scripts/summarize.py \
 - lookback `T=8`；输入为 158 个股因子、63 个市场特征和 1 个标签字段；
 - 标签为 `Ref($close, -5) / Ref($close, -1) - 1`；
 - 训练时按日去除上下各 2.5% 极端标签，再做横截面 z-score；
-- Adam 单参数组：主干、CRFR、RRCA context body 与 condition 共用当前数据集的 `training.learning_rate`，无模块级学习率和学习率调度器；
+- Adam 单参数组：主干、CRFR、RRCA context body、condition 与四个记忆参数共用当前数据集的 `training.learning_rate`，无模块级学习率和学习率调度器；
 - 责任选择温度从 `1.0` 线性退火到 `0.5`，前 10 epochs 完成；
 - 梯度裁剪绝对值 `3.0`；最多 150 epochs；首次日均 TrainMSE `<=0.95` 时停止；
 - 正式回测使用 Top30/Drop30，headline 为无手续费 AR/IR。

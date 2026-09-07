@@ -107,10 +107,12 @@ class UniformOptimizerTest(unittest.TestCase):
                 }
                 self.assertEqual(set(actual_ids), expected_ids)
                 self.assertEqual(len(actual_ids), len(expected_ids))
-                self.assertEqual(sum(p.numel() for p in group["params"]), 846229)
-                self.assertEqual(counts["total"], 846229)
+                self.assertEqual(sum(p.numel() for p in group["params"]), 846233)
+                self.assertEqual(counts["total"], 846233)
+                self.assertEqual(counts["rrca_memory"], 4)
                 self.assertEqual(set(counts), {
                     "total", "backbone", "crfr", "rrca_adapters", "rrca_condition",
+                    "rrca_memory",
                 })
                 self.assertEqual(
                     sum(value for key, value in counts.items() if key != "total"),

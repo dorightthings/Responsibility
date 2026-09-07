@@ -30,7 +30,7 @@ from .io import atomic_csv, atomic_json, atomic_text, utc_now
 from .metrics import daily_metrics, labels_from_sampler, normalize_prediction
 
 
-PROTOCOL = "responsibility-crfr-rrca-uniform-lr-portable-v2"
+PROTOCOL = "responsibility-crfr-rrca-mechanism-memory-uniform-lr-portable-v3"
 
 
 def set_global_seed(seed: int) -> None:
@@ -101,15 +101,16 @@ def build_optimizer(
     g1_names = set(_parameter_names(model, "g1_module_parameter_names"))
     context_names = set(_parameter_names(model, "context_body_parameter_names"))
     condition_names = set(_parameter_names(model, "condition_parameter_names"))
-    groups = (g1_names, context_names, condition_names)
-    if any(groups[i] & groups[j] for i in range(3) for j in range(i + 1, 3)):
-        raise ValueError("CRFR, RRCA adapter and RRCA condition groups overlap")
+    memory_names = set(_parameter_names(model, "memory_module_parameter_names"))
+    groups = (g1_names, context_names, condition_names, memory_names)
+    if any(groups[i] & groups[j] for i in range(len(groups)) for j in range(i + 1, len(groups))):
+        raise ValueError("model diagnostic parameter groups overlap")
     unknown = set().union(*groups) - all_names
     if unknown:
         raise ValueError("model parameter groups name unknown tensors: %s" % sorted(unknown))
     master_names = all_names - set().union(*groups)
-    if not all((master_names, g1_names, context_names, condition_names)):
-        raise ValueError("all four model components must have named parameters")
+    if not all((master_names, *groups)):
+        raise ValueError("all model components must have named parameters")
 
     def parameters(names: set) -> List[torch.nn.Parameter]:
         return [parameter for name, parameter in named if name in names]
@@ -118,6 +119,7 @@ def build_optimizer(
     context_parameters = parameters(context_names)
     g1_parameters = parameters(g1_names)
     condition_parameters = parameters(condition_names)
+    memory_parameters = parameters(memory_names)
     trainable_parameters = [
         parameter for _, parameter in named if parameter.requires_grad
     ]
@@ -134,6 +136,7 @@ def build_optimizer(
         "rrca_condition": int(
             sum(parameter.numel() for parameter in condition_parameters)
         ),
+        "rrca_memory": int(sum(parameter.numel() for parameter in memory_parameters)),
     }
     if sum(counts[key] for key in counts if key != "total") != counts["total"]:
         raise ValueError("parameter groups do not cover the full model")
@@ -468,8 +471,15 @@ def train_one_seed(
         "seed": seed,
         "mode": mode,
         "model": "ResponsibilityModel",
-        "method": "CRFR+stock-specific RRCA+uniform learning rate",
+        "method": "CRFR+stock-specific RRCA+four-mechanism memory+uniform learning rate",
         "route_detached": False,
+        "memory": {
+            "mode": model.memory_mode,
+            "parameter_count": parameter_counts["rrca_memory"],
+            "initial_coefficients": [0.5, 0.5, 0.5, 0.5],
+            "final_coefficients": model.memory_coefficients().detach().cpu().tolist(),
+            "scope": "within_each_input_window_no_cross_call_state",
+        },
         "selection": {
             "rule": (
                 "fixed_2_epoch_smoke"

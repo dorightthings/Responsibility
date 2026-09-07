@@ -1,10 +1,11 @@
-schema_version: responsibility-experiment-v2
+schema_version: responsibility-experiment-v3
 dataset: short_csi800_direct
 beta: 2.0
 benchmark: SH000906
 bridge_date: "2020-06-30"
 
 model:
+  # RRCA includes four learned memory coefficients; no separate memory settings.
   d_feat: 158
   d_model: 256
   t_nhead: 4
