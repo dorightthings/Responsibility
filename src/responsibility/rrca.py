@@ -3,13 +3,11 @@
 The retained path is::
 
     shared CRFR -> temporal attention -> cross-sectional attention
-    -> stock-specific RRCA with four-mechanism memory
-    -> temporal pooling -> prediction head
+    -> stock-specific RRCA -> temporal pooling -> prediction head
 
 The historical experiment called this block ``MechanismGroupedContext``.
 Both historical class names and state-dict keys are retained for checkpoint
-compatibility with the retained memory checkpoints. Pre-memory checkpoints
-do not contain ``mechanism_context.raw_memory`` and require the older release.
+compatibility.
 """
 
 from __future__ import annotations
@@ -24,23 +22,8 @@ from .backbone import SAttention, TAttention
 from .crfr import MechanismResponsibilityFactorGateMASTER
 
 
-def ema_contexts(contexts: Tensor, raw_memory: Tensor) -> Tensor:
-    """Smooth [K,T,D] contexts within one window; never retain cross-call state."""
-    if contexts.ndim != 3 or contexts.shape[1] < 1:
-        raise ValueError("contexts must have nonempty shape [K,T,D]")
-    if raw_memory.ndim != 1 or raw_memory.numel() != contexts.shape[0]:
-        raise ValueError("raw_memory must contain one logit per mechanism")
-    coefficient = torch.sigmoid(raw_memory).reshape(-1, 1)
-    memory = contexts[:, 0]
-    states = [memory]
-    for index in range(1, contexts.shape[1]):
-        memory = coefficient * memory + (1.0 - coefficient) * contexts[:, index]
-        states.append(memory)
-    return torch.stack(states, dim=1)
-
-
 class MechanismGroupedContext(nn.Module):
-    """Responsibility-weighted contexts, temporal memory and stock reception."""
+    """Four sum-to-one mechanism contexts with stock-specific reception."""
 
     def __init__(
         self,
@@ -80,17 +63,10 @@ class MechanismGroupedContext(nn.Module):
 
         rho_tensor = torch.tensor(float(rho_initial))
         self.rho_logit = nn.Parameter(torch.logit(rho_tensor).reshape(()))
-        # No random draws: preserve every inherited parameter's initialization.
-        # Four learned logits start at zero (sigmoid coefficient 0.5).
-        self.raw_memory = nn.Parameter(self.rho_logit.new_zeros(self.mechanism_count))
 
     @property
     def rho(self) -> Tensor:
         return torch.sigmoid(self.rho_logit)
-
-    @property
-    def memory_coefficients(self) -> Tensor:
-        return torch.sigmoid(self.raw_memory)
 
     def forward(
         self,
@@ -131,9 +107,8 @@ class MechanismGroupedContext(nn.Module):
 
         # [N,K] x [N,T,D] -> [K,T,D]. Each mechanism has its own context.
         contexts = torch.einsum("nk,ntd->ktd", source_weights, hidden)
-        memory_contexts = ema_contexts(contexts, self.raw_memory)
         adapted_contexts = torch.stack(
-            [adapter(memory_contexts[k]) for k, adapter in enumerate(self.adapters)],
+            [adapter(contexts[k]) for k, adapter in enumerate(self.adapters)],
             dim=0,
         )
 
@@ -155,13 +130,11 @@ class MechanismGroupedContext(nn.Module):
             "target_responsibility": target_responsibility,
             "delta": delta,
             "rho": self.rho,
-            "memory_contexts": memory_contexts,
-            "memory_coefficients": self.memory_coefficients,
         }
 
 
 class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
-    """Shared CRFR with stock-specific RRCA and four-mechanism memory."""
+    """Shared CRFR gate with four stock-specific responsibility contexts."""
 
     MECHANISM_COUNT = 4
     DEFAULT_ADAPTER_RANK = 32
@@ -230,25 +203,14 @@ class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
                 adapter_rank=int(adapter_rank),
                 rho_initial=rho_initial,
             ).to(device=reference.device, dtype=reference.dtype)
-        self.memory_mode = "mechanism_specific"
-        self.route_detached = False
-
-    def memory_coefficients(self) -> Tensor:
-        return self.mechanism_context.memory_coefficients
-
-    def memory_module_parameter_names(self) -> Tuple[str, ...]:
-        return tuple(
-            name for name, _ in self.named_parameters()
-            if name == "mechanism_context.raw_memory"
-        )
 
     def g1_module_parameter_names(self) -> Tuple[str, ...]:
-        """Responsibility-factor-gate parameter names for diagnostics."""
+        """Responsibility-factor-gate parameters; intended learning rate 1e-4."""
 
         return tuple(super().new_module_parameter_names())
 
     def context_body_parameter_names(self) -> Tuple[str, ...]:
-        """Low-rank context adapter parameter names for diagnostics."""
+        """Low-rank context adapters; intended learning rate 1e-5."""
 
         return tuple(
             name
@@ -257,7 +219,7 @@ class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
         )
 
     def condition_parameter_names(self) -> Tuple[str, ...]:
-        """Residual-strength parameter name for diagnostics."""
+        """Residual-strength condition; intended learning rate 1e-4."""
 
         return tuple(
             name
@@ -268,11 +230,7 @@ class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
     def context_module_parameter_names(self) -> Tuple[str, ...]:
         """All grouped-context parameters, exposed for diagnostics."""
 
-        return (
-            self.context_body_parameter_names()
-            + self.condition_parameter_names()
-            + self.memory_module_parameter_names()
-        )
+        return self.context_body_parameter_names() + self.condition_parameter_names()
 
     def new_module_parameter_names(self) -> Tuple[str, ...]:
         return self.g1_module_parameter_names() + self.context_module_parameter_names()
@@ -401,8 +359,6 @@ class MechanismGroupedContextMASTER(MechanismResponsibilityFactorGateMASTER):
                 "context_delta": context_aux["delta"],
                 "context_rho": context_aux["rho"],
                 "context_output": hidden,
-                "memory_mechanism_contexts": context_aux["memory_contexts"],
-                "memory_coefficients": context_aux["memory_coefficients"],
             }
         )
         return prediction, auxiliary
@@ -415,7 +371,6 @@ RRCAMASTER = MechanismGroupedContextMASTER
 __all__ = [
     "TAttention",
     "SAttention",
-    "ema_contexts",
     "MechanismGroupedContext",
     "MechanismGroupedContextMASTER",
     "MGCMASTER",

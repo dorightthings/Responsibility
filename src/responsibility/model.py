@@ -11,12 +11,11 @@ ResponsibilityModel = MechanismGroupedContextMASTER
 
 
 def build_model(**kwargs: Any) -> ResponsibilityModel:
-    """Build CRFR + stock-specific RRCA with four-mechanism temporal memory.
+    """Build the retained CRFR + stock-specific RRCA model.
 
     Keyword arguments are passed through unchanged to
     :class:`MechanismGroupedContextMASTER` so experiment configuration remains
-    explicit. Memory has four learned coefficients, no separate learning rate,
-    and the same state-dict keys as the retained memory experiments.
+    explicit and checkpoint-compatible.
     """
 
     return ResponsibilityModel(**kwargs)

@@ -1,212 +1,159 @@
 # Responsibility
 
-`ResponsibilityModel` 是一套面向股票收益预测的责任机制模型。它用同一组动态机制责任，同时回答两个问题：当前应重点采用哪些因子证据，以及一只股票应从哪些机制群体中获取跨股票信息。
+本仓库作为新主力机继续开发的代码起点，当前版本为 **v0.4.0：分组学习率版 CRFR＋RRCA**。
+模型和优化器分组恢复自 `e7bcbb9`，不包含 v0.3.0 新增的四机制时间记忆。
 
-本仓库发布的是当前保留的四机制记忆版（v0.3.0），使用统一学习率，便于在不同机器上从相同代码和数据开始各自的改进实验：
+仓库只提供代码、配置、环境说明和数据构建工具，不附带历史实验结果。
+后续比较以新电脑实际训练、评价和回测生成的结果为准，不要求与服务器数值相同。
+
+## 1. 当前模型与学习率
 
 ```text
-Alpha158 个股因子 + Market63 市场状态 + 个股/规则证据
-    -> CRFR：共识责任因子路由
-    -> 单股时序证据编码
-    -> 基础截面信息编码
-    -> RRCA：责任路由截面聚合（内含四机制时间记忆）
-    -> 时间汇聚与未来收益预测
+Alpha158 个股因子＋Market63 市场特征＋14维股票状态与规则证据
+    → CRFR：共识责任因子路由
+    → 单股时间注意力
+    → 基础截面注意力
+    → RRCA：个股责任路由的跨股票聚合
+    → 时间汇聚与未来收益预测
 ```
 
-模型使用四类条件预测责任：共同延续、共同反转、个股延续和个股反转。这里的“责任”表示当前条件下不同经济机制对预测证据的相对分配强度，不表示已经识别出真实因果责任。
+Alpha158 是已有因子输入；CRFR 生成的是对这些因子的权重。
+本版参数量为 846229；不使用路由 detach，不加入额外记忆模块。
 
-## 1. 当前发布边界
+整个模型使用一个 Adam 优化器、两个参数组。CSI300 和 CSI800 均为：
 
-- 公开模型名：`ResponsibilityModel`。
-- 核心模块：CRFR（Consensus Responsibility Factor Routing）和 RRCA（Responsibility-Routed Cross-sectional Aggregation）。
-- 保留原有 stock-specific RRCA 路由及初始化，不使用路由梯度分离（detach），不加入新的初始化方案。
-- RRCA 在四类群体上下文形成后、原机制变换前进行窗口内时间平滑，每类机制有一个可学习系数；新增 4 个参数，总参数量为 `846233`。记忆每个输入窗口重新开始，不跨预测日保存状态。
-- 整个模型使用一个 Adam 参数组；唯一学习率配置字段为 `training.learning_rate`，CSI300 为 `2e-5`，CSI800 为 `1e-5`，训练期间固定不变。
-- 63 维市场特征、14 维股票状态、规则方向与数据构建方法均保持不变；新增记忆参数也使用上述统一学习率，没有额外手调的记忆超参数。
-- 数据集：`short_csi300` 与 `short_csi800_direct`。
-- `short_csi800_direct` 沿用冻结 provider 的作者兼容直接 CSI800 口径，并保留其已知
-  的早期历史成分截断；它不是重新合成的 CSI300+CSI500 股票池。
-- 正式矩阵：两个数据集分别运行 seeds `0,1,2,3,4`，共 10 个任务。
-- 默认回测：Qlib `TopkDropoutStrategy(topk=30, n_drop=30)`，headline 为不计手续费的 `excess_return_without_cost` AR/IR。
-- 当前结果属于开发期重复测试证据（`development/repeated-test`），不应描述为从未查看过的独立测试集验证。
+| 参数组 | 学习率 |
+| --- | ---: |
+| 主干＋RRCA 适配器 | `1e-5` |
+| CRFR＋RRCA 条件系数 rho | `1e-4` |
 
-本项目仅用于研究，不构成任何投资建议。
+配置保留原来的四个字段：`base_learning_rate`、`crfr_learning_rate`、
+`rrca_adapter_learning_rate`、`rrca_condition_learning_rate`；
+它们对应上述两组实际更新，不是四个独立优化器，也没有学习率调度器。
+每次训练会把实际参数分组写入本机运行目录的 `optimizer.json`。
 
-### 从无记忆版升级
+## 2. 新电脑安装（RTX 5070 Ti）
 
-已有数据包可以继续使用，不需要重新生成 14 维状态或方向尺度。更新代码后重新执行
-`python -m pip install -e . --no-deps`，使用原有两个配置即可训练四机制记忆版，并为新实验选择新的输出目录。
-旧无记忆 checkpoint 缺少 `mechanism_context.raw_memory`，不能作为四机制记忆版直接严格加载；
-若要继续旧模型实验，请在独立工作目录使用旧提交 `60e5a58`，保留旧结果和 checkpoint。
+默认 [environment.yml](environment.yml) 面向 Python 3.10、
+PyTorch 2.7.1＋CUDA 12.8 的 Windows x64 / WSL2 Linux x64 环境。
+保留 NumPy 1.23.5、pandas 1.5.3、SciPy 1.10.1、scikit-learn 1.3.2、
+PyYAML 6.0.2 和 PyQlib 0.9.7，减少数据读取与评价组件的变化。
 
-## 2. 安装
+先准备 Git、Conda 和支持本机显卡的 NVIDIA 驱动，然后执行：
 
-推荐 Linux 或 Windows 11 + WSL2，并使用 NVIDIA GPU。冻结环境为：
-
-- Python 3.8.20
-- PyTorch 2.1.2
-- CUDA 11.8
-- NumPy 1.23.5
-- pandas 1.5.3
-- SciPy 1.10.1
-- scikit-learn 1.3.2
-- PyQlib 0.9.7
-
-```bash
+```text
 git clone https://github.com/dorightthings/Responsibility.git
 cd Responsibility
 conda env create -f environment.yml
-conda activate responsibility
-python -m pip install -e .
+conda activate responsibility-rtx50
+python -m pip install -e . --no-deps
+python -m pip check
+python scripts/check_environment.py
 ```
 
-若机器的驱动或 CUDA 条件不同，请先按 PyTorch 官方方式安装与本机兼容的 PyTorch 2.1.2，再安装其余依赖。当前正式实验在 24 GiB RTX 4090 上验证；新机器首次运行建议每张卡只放一个任务。
+以上命令均为单行，可在 Windows 的 Anaconda Prompt / 已初始化 Conda 的 PowerShell，
+或 WSL2 终端中执行。`check_environment.py` 会实际运行模型前向、反向与一次 Adam 更新；
+没有可用 CUDA 时默认报错，不会把 CPU 检查误当作显卡检查。
 
-## 3. 准备数据
+5070 Ti 环境目前是迁移配置，尚未在目标 Windows 电脑实测；它不是服务器环境的复制品。
+原服务器实际使用的 Python 3.8.20／PyTorch 2.1.2／CUDA 12.1 配置单独记录在
+[envs/server-legacy.yml](envs/server-legacy.yml)，不要在 5070 Ti 上照搬它。
+版本来源、CPU 检查方式与常见问题见 [环境说明](docs/ENVIRONMENT.md)。
 
-训练数据、责任特征和 Qlib provider 合计约 3.5 GB，不直接存入普通 Git 历史。
-在两台个人机器之间，推荐把数据包放在自己的网盘，GitHub 只同步代码与配置。
+## 3. 数据准备
 
-下载一个数据归档：
+使用此前的个人网盘数据包即可，不需要因为恢复分组学习率而重建数据。
+包内应包含两个数据集的 sampler、14维股票状态、规则分量、训练段方向尺度，
+以及冻结回测所需的 Qlib provider。数据不要提交到 GitHub。
 
-```bash
-python scripts/download_data.py \
-  --url "<DATA_ARCHIVE_URL>" \
-  --sha256 "<OPTIONAL_ARCHIVE_SHA256>" \
-  --destination data
-```
+下载归档后，可以用实际的本机文件 URI 解压，例如 Windows：
 
-如果数据被拆成多个互不重叠的归档，可对每个 URL 重复执行上述命令。归档内部应直接包含 `manifest.json`、`samplers/`、`responsibility/`、`direction_scales/` 或 `qlib/` 等相对于 `data/` 的路径，不要再套一层绝对机器目录。
-
-完成后校验：
-
-```bash
+```text
+python scripts/download_data.py --url "file:///D:/Downloads/你的数据包.tar.gz" --destination data
 python scripts/verify_data.py --data-root data
 ```
 
-只检查布局和文件大小、暂时跳过 SHA-256 时可使用：
+`file:///D:/...` 是示例，替换成真实下载位置。有已知归档 SHA-256 时可给
+`download_data.py` 增加 `--sha256`；它只检查文件完整性，不要求训练结果相同。
+只加载自己生成或可信来源的 pickle 数据。
 
-```bash
-python scripts/verify_data.py --data-root data --quick
+数据目录约定见 [data/README.md](data/README.md)。
+需要以后重新生成数据时，使用 [数据构建说明](docs/DATA_BUILD.md) 中的现有脚本。
+首次升级环境需要确认原 pickle 能正确读取；不要为解决兼容问题擅自改股票池、样本或标签。
+
+## 4. 开始训练
+
+先进行一次最小数据与训练检查：
+
+```text
+python scripts/train.py --config configs/csi300.yaml --data-root data --mode smoke --seed 0 --gpu 0 --output-dir outputs/smoke_grouped_csi300_seed0
 ```
 
-预期数据布局及 manifest 约定见 [data/README.md](data/README.md)。
+Smoke 固定两轮、跳过回测，仅说明链路可运行，不是正式结果。
+输出目录必须尚不存在；失败重试使用新目录，不覆盖旧产物。
 
-仓库也包含完整数据构建代码。需要从冻结 Qlib provider 重新生成 sampler、股票状态、
-规则特征和方向尺度时，按 [数据获取与重建](docs/DATA_BUILD.md) 操作。直接使用已生成
-数据包更快；重新生成适合以后修改数据区间、股票池或特征定义。
+随后在一张显卡上排队训练 CSI300、CSI800，各五个种子：
 
-## 4. Smoke test
-
-Smoke test 固定使用 CSI300、seed 0、两轮训练并跳过回测，用于确认环境、数据读取、模型前向和反向传播能够工作：
-
-```bash
-python scripts/train.py \
-  --config configs/csi300.yaml \
-  --data-root data \
-  --mode smoke \
-  --seed 0 \
-  --gpu 0 \
-  --output-dir outputs/smoke_csi300_seed0
+```text
+python scripts/run_batch.py --configs configs/csi300.yaml configs/csi800_direct.yaml --data-root data --mode formal --seeds 0 1 2 3 4 --gpus 0 --jobs-per-gpu 1 --output-root outputs/rtx5070ti_grouped_baseline
 ```
 
-输出目录必须是一个尚不存在的新目录。Smoke 成功只说明程序能够运行，不用于报告正式性能。
+默认会继续执行评价、Top30/Drop30 回测和结果汇总。先使用单任务并发；显存不足时可加
+`--cpu-data-cache`，仅把数据缓存放在内存中，不拆分完整日截面，也不改变模型输入。
+不要同时照搬服务器的多 GPU 命令。
 
-## 5. 正式十任务
+需要单独补回测或重新汇总时：
 
-```bash
-python scripts/run_batch.py \
-  --configs configs/csi300.yaml configs/csi800_direct.yaml \
-  --data-root data \
-  --mode formal \
-  --seeds 0 1 2 3 4 \
-  --gpus 0 1 2 3 \
-  --jobs-per-gpu 1 \
-  --output-root outputs/formal_responsibility_v1
+```text
+python scripts/evaluate.py --run-root outputs/rtx5070ti_grouped_baseline --data-root data
+python scripts/summarize.py --run-root outputs/rtx5070ti_grouped_baseline
 ```
 
-这条命令启动：
+所有结果以本机生成的文件为准，保存在 `outputs/`，默认不会进入 Git。
 
-- `short_csi300` × 5 seeds；
-- `short_csi800_direct` × 5 seeds；
-- 合计 10 个相互独立的训练任务。
+## 5. 固定实验口径
 
-24 GiB 显卡可以在确认显存余量后提高并发，但不同显卡应从 `--jobs-per-gpu 1` 开始。不要复用已有输出目录，也不要覆盖已有 checkpoint、prediction 或回测文件。
+- 数据集：CSI300、CSI800（内部标识为 `short_csi300`、`short_csi800_direct`）。
+- 训练段：2008-01-02—2020-03-31；验证段：2020-04-01—2020-06-30。
+- 测试段：2020-07-01—2022-12-30；lookback 8；no-purge。
+- 原始标签：`Ref($close, -5) / Ref($close, -1) - 1`。
+- 仅训练时按日去除上下各 2.5% 极端标签，再按截面样本标准差做 z-score。
+- CSI300 的市场门温度 beta 为 5，CSI800 为 2；不是股票状态里的收益回归 beta。
+- 最多 150 epochs；首次日均 TrainMSE <= 0.95 停止；seeds 0—4。
+- 六项指标：IC、ICIR、RankIC、RankICIR、AR、IR。
+- 回测：Qlib Top30/Drop30；AR/IR 使用不计手续费的超额收益。
+- 同一测试期已用于开发；更换电脑重新训练不使它变成未见测试集。
 
-每个训练任务会写入 `optimizer.json`，记录实际学习率、参数组数量和作用范围，便于确认整个模型使用同一个学习率。
+完整参数与运行记录要求见 [实验约定](docs/REPRODUCIBILITY.md)。
 
-若训练入口与评价入口分开，使用：
-
-```bash
-python scripts/evaluate.py \
-  --run-root outputs/formal_responsibility_v1 \
-  --data-root data
-
-python scripts/summarize.py \
-  --run-root outputs/formal_responsibility_v1
-```
-
-## 6. 参考结果
-
-当前四机制记忆版的五 seed 均值 ± 总体标准差（population standard deviation，`ddof=0`）如下。两组均为 CRFR＋stock-specific RRCA＋四机制时间记忆，使用统一学习率、不使用 detach；Top30/Drop30 的 AR/IR 均采用 `excess_return_without_cost`，AR 使用小数形式（例如 `0.300197` 表示约 `30.02%`）：
-
-| 数据集 | IC | ICIR | RankIC | RankICIR | AR | IR |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| CSI300 | 0.058402 ± 0.005356 | 0.389587 ± 0.042487 | 0.068651 ± 0.004484 | 0.448077 ± 0.036118 | 0.300197 ± 0.041422 | 2.520931 ± 0.306456 |
-| CSI800 | 0.047732 ± 0.003506 | 0.396697 ± 0.045869 | 0.062087 ± 0.002703 | 0.489920 ± 0.026110 | 0.292338 ± 0.056738 | 2.248818 ± 0.421200 |
-
-完整精度的均值、标准差、逐 seed 数值和协议记录位于 [results/reference_mechanism_memory/](results/reference_mechanism_memory/)，seeds 为 `0,1,2,3,4`。这些来自已完成的四机制记忆实验，本次发布没有重新训练或回测；它们是 `development/repeated-test` 开发参考结果，不是未见测试集上的独立验证，也不是异机运行必须达到的数值目标。
-
-原 [results/reference_uniform_lr/](results/reference_uniform_lr/) 保留无记忆统一学习率版，
-[results/reference/](results/reference/) 保留历史分组学习率版；两者文件和数值均未改动。
-它们不是当前四机制记忆版的参考结果。两台机器只需从相同代码、配置和数据开始，可以分别改进并将有效版本推到各自分支，不要求最终结果相同。
-
-## 7. 冻结实验口径
-
-| 项目 | CSI300 | CSI800 |
-| --- | --- | --- |
-| `beta` | 5 | 2 |
-| `training.learning_rate` | `2e-5` | `1e-5` |
-| benchmark | `SH000300` | `SH000906` |
-| train | 2008-01-02 至 2020-03-31 | 同左 |
-| valid | 2020-04-01 至 2020-06-30 | 同左 |
-| test | 2020-07-01 至 2022-12-30 | 同左 |
-| bridge | 2020-06-30 | 2020-06-30 |
-
-共同设置：
-
-- lookback `T=8`；输入为 158 个股因子、63 个市场特征和 1 个标签字段；
-- 标签为 `Ref($close, -5) / Ref($close, -1) - 1`；
-- 训练时按日去除上下各 2.5% 极端标签，再做横截面 z-score；
-- Adam 单参数组：主干、CRFR、RRCA context body、condition 与四个记忆参数共用当前数据集的 `training.learning_rate`，无模块级学习率和学习率调度器；
-- 责任选择温度从 `1.0` 线性退火到 `0.5`，前 10 epochs 完成；
-- 梯度裁剪绝对值 `3.0`；最多 150 epochs；首次日均 TrainMSE `<=0.95` 时停止；
-- 正式回测使用 Top30/Drop30，headline 为无手续费 AR/IR。
-
-具体机器、CUDA 和底层算子不同可能造成最终指标差异。这里提供共同的代码和数据起点；后续实验可各自调整配置和方法，只需记录版本、数据、配置与结果。学习率修改只使用 `training.learning_rate`，不要沿用旧的四个模块级学习率字段。
-
-## 8. 仓库结构
+## 6. 项目目录与开发
 
 ```text
 Responsibility/
-├── configs/                 # 两个冻结数据集的配置
-├── data/                    # 下载后的数据；Git 只保留说明文件
-├── docs/                    # 方法、数据构建、双机联动和许可说明
-├── results/experiments/     # 可提交 Git 的轻量实验摘要
-├── scripts/                 # 数据构建、训练、评价、汇总和打包入口
-├── src/                     # 模型、训练组件与 preprocessing
-├── environment.yml
-├── pyproject.toml
-└── README.md
+├── configs/          # 两个数据集的分组学习率配置
+├── src/              # CRFR、RRCA、训练、评价与数据处理
+├── scripts/          # 环境检查、数据准备、训练、回测、汇总
+├── envs/             # 旧服务器环境记录
+├── docs/             # 方法、数据构建、环境与开发说明
+├── tests/            # 必要的代码检查
+├── data/             # 数据文件留本机，Git仅跟踪说明与示例清单
+├── outputs/          # 本机权重、预测、日志与结果，不提交
+├── environment.yml   # 5070 Ti 新电脑环境
+└── pyproject.toml
 ```
 
-## 9. 两台机器联动
+代码与配置通过 GitHub 更新；数据与实验产物留本机或个人网盘。
+参见 [主力机开发与分支说明](docs/TWO_MACHINE_WORKFLOW.md)。
 
-两台机器分别配置本仓库的 SSH key，然后都通过同一 GitHub 地址拉取和推送。代码、
-YAML 和轻量结果摘要进 Git；数据、checkpoint、prediction 和完整日志放本地或个人
-网盘。具体命令见 [两台机器联动](docs/TWO_MACHINE_WORKFLOW.md)。不同机器不要求跑出
-逐位相同的结果，只需记录各自使用的 commit、data manifest、配置和 seed。
+此前分组版来源为 `e7bcbb9`，无记忆统一学习率版为 `60e5a58`，
+统一学习率＋四机制记忆版为 `9f70c7d`。历史代码与结果仍可在 Git 历史中查看，
+但不作为当前版本附带的参考表；记忆版 checkpoint 不能直接加载到本版。
 
-## 10. 引用与许可
+本次发布仅整理当前方法；独立 MASTER 和各对比方法的一键运行工程尚未接入本仓库，
+不要把它们在服务器上的可运行状态当作本仓库已完成的功能。
 
-代码许可见 [LICENSE](LICENSE)，复用组件和第三方项目说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，引用元数据见 [CITATION.cff](CITATION.cff)。代码许可不自动覆盖数据、指数成分、模型权重或第三方内容；分发和使用数据前请单独确认其许可。
+## 7. 许可
+
+方法见 [METHOD](docs/METHOD.md)，代码许可见 [LICENSE](LICENSE)，
+上游来源见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)，引用元数据见 [CITATION](CITATION.cff)。
+代码许可不自动覆盖行情和指数成分数据。本项目用于研究，不构成投资建议。

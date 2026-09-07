@@ -1,4 +1,4 @@
-"""Small CPU checks for the released single-learning-rate configuration."""
+"""CPU checks for the restored two-group Adam configuration."""
 
 from __future__ import annotations
 
@@ -10,77 +10,61 @@ from unittest.mock import patch
 import torch
 
 from responsibility.training.config import load_experiment_config
-from responsibility.training.engine import _model, build_optimizer
+from responsibility.training.engine import _model, build_optimizer, optimizer_metadata
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASETS = (
-    ("short_csi300", "csi300.yaml", 2e-5),
-    ("short_csi800_direct", "csi800_direct.yaml", 1e-5),
+    ("short_csi300", "csi300.yaml"),
+    ("short_csi800_direct", "csi800_direct.yaml"),
 )
-LEGACY_LR_FIELDS = (
-    "base_learning_rate",
-    "crfr_learning_rate",
-    "rrca_adapter_learning_rate",
-    "rrca_condition_learning_rate",
-)
+LR_FIELDS = {
+    "base_learning_rate": 1e-5,
+    "crfr_learning_rate": 1e-4,
+    "rrca_adapter_learning_rate": 1e-5,
+    "rrca_condition_learning_rate": 1e-4,
+}
 
 
 def _load_payload(payload: dict):
-    # Keep path validation real while avoiding temporary configuration files.
     with patch(
         "responsibility.training.config._read_mapping", return_value=payload
     ):
         return load_experiment_config(ROOT / "configs/csi300.yaml")
 
 
-class UniformLearningRateConfigTest(unittest.TestCase):
-    def test_dataset_defaults_and_released_yaml_configs(self) -> None:
-        for dataset, filename, expected_lr in DATASETS:
+class GroupedLearningRateConfigTest(unittest.TestCase):
+    def test_defaults_match_released_yaml(self) -> None:
+        for dataset, filename in DATASETS:
             with self.subTest(dataset=dataset):
-                default = _load_payload({"dataset": dataset})
-                released = load_experiment_config(ROOT / "configs" / filename)
-                self.assertEqual(default.learning_rate, expected_lr)
-                self.assertEqual(released.learning_rate, expected_lr)
-                self.assertEqual(released.dataset, dataset)
-                for config in (default, released):
-                    self.assertEqual(config.to_dict()["learning_rate"], expected_lr)
-                    for field in LEGACY_LR_FIELDS:
-                        self.assertNotIn(field, config.to_dict())
+                for config in (
+                    _load_payload({"dataset": dataset}),
+                    load_experiment_config(ROOT / "configs" / filename),
+                ):
+                    self.assertEqual(config.dataset, dataset)
+                    for name, value in LR_FIELDS.items():
+                        self.assertEqual(getattr(config, name), value)
+                    self.assertNotIn("learning_rate", config.to_dict())
 
-    def test_accepts_explicit_positive_finite_learning_rate(self) -> None:
-        for dataset, _, _ in DATASETS:
-            with self.subTest(dataset=dataset):
-                config = _load_payload({
-                    "dataset": dataset,
-                    "training": {"learning_rate": 3e-5},
-                })
-                self.assertEqual(config.learning_rate, 3e-5)
+    def test_rejects_uniform_release_field(self) -> None:
+        for location in ("root", "training"):
+            payload = {"dataset": "short_csi300", "training": {}}
+            target = payload if location == "root" else payload["training"]
+            target["learning_rate"] = 2e-5
+            with self.subTest(location=location), self.assertRaises(ValueError):
+                _load_payload(payload)
 
-    def test_rejects_nonfinite_and_nonpositive_learning_rates(self) -> None:
-        for value in (float("nan"), float("inf"), -float("inf"), 0.0, -1e-5):
-            with self.subTest(learning_rate=value):
-                with self.assertRaises(ValueError):
+    def test_rejects_changed_or_nonfinite_group_rates(self) -> None:
+        for field in LR_FIELDS:
+            for value in (0.0, -1e-5, 3e-5, float("nan"), float("inf")):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     _load_payload({
                         "dataset": "short_csi300",
-                        "training": {"learning_rate": value},
+                        "training": {field: value},
                     })
 
-    def test_rejects_legacy_lr_fields_at_root_and_in_training(self) -> None:
-        for field in LEGACY_LR_FIELDS:
-            for location in ("root", "training"):
-                with self.subTest(field=field, location=location):
-                    payload = {
-                        "dataset": "short_csi300",
-                        "training": {"learning_rate": 2e-5},
-                    }
-                    target = payload if location == "root" else payload["training"]
-                    target[field] = 1e-5
-                    with self.assertRaises(ValueError):
-                        _load_payload(payload)
 
-
-class UniformOptimizerTest(unittest.TestCase):
+class GroupedOptimizerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.previous_threads = torch.get_num_threads()
@@ -90,84 +74,84 @@ class UniformOptimizerTest(unittest.TestCase):
     def tearDownClass(cls) -> None:
         torch.set_num_threads(cls.previous_threads)
 
-    def test_single_group_covers_full_model_once(self) -> None:
-        for dataset, _, expected_lr in DATASETS:
+    def test_exact_groups_and_complete_coverage(self) -> None:
+        for dataset, filename in DATASETS:
             with self.subTest(dataset=dataset):
-                config = _load_payload({"dataset": dataset})
+                config = load_experiment_config(ROOT / "configs" / filename)
                 model = _model(config, seed=7, device=torch.device("cpu"))
                 optimizer, counts = build_optimizer(model, config)
                 self.assertIsInstance(optimizer, torch.optim.Adam)
-                self.assertEqual(len(optimizer.param_groups), 1)
-                group = optimizer.param_groups[0]
-                self.assertEqual(group["lr"], expected_lr)
-                actual_ids = [id(parameter) for parameter in group["params"]]
-                expected_ids = {
-                    id(parameter) for parameter in model.parameters()
-                    if parameter.requires_grad
-                }
-                self.assertEqual(set(actual_ids), expected_ids)
-                self.assertEqual(len(actual_ids), len(expected_ids))
-                self.assertEqual(sum(p.numel() for p in group["params"]), 846233)
-                self.assertEqual(counts["total"], 846233)
-                self.assertEqual(counts["rrca_memory"], 4)
-                self.assertEqual(set(counts), {
-                    "total", "backbone", "crfr", "rrca_adapters", "rrca_condition",
-                    "rrca_memory",
-                })
+                self.assertEqual(len(optimizer.param_groups), 2)
+                fast_names = set(model.g1_module_parameter_names()) | set(
+                    model.condition_parameter_names()
+                )
+                named = dict(model.named_parameters())
+                all_ids = []
+                for index, group in enumerate(optimizer.param_groups):
+                    self.assertEqual(group["lr"], (1e-5, 1e-4)[index])
+                    expected = {
+                        id(parameter) for name, parameter in named.items()
+                        if (name in fast_names) == (index == 1)
+                    }
+                    actual = [id(p) for p in group["params"]]
+                    self.assertEqual(set(actual), expected)
+                    all_ids.extend(actual)
+                self.assertEqual(len(all_ids), len(set(all_ids)))
+                self.assertEqual(set(all_ids), {id(p) for p in model.parameters()})
+                self.assertEqual(counts["total"], 846229)
+                self.assertEqual(counts["rrca_condition"], 1)
+                self.assertNotIn("rrca_memory", counts)
+                self.assertFalse(any("raw_memory" in name for name in named))
                 self.assertEqual(
                     sum(value for key, value in counts.items() if key != "total"),
                     counts["total"],
                 )
-
-                # Future experiments may freeze a parameter; it must not enter Adam.
-                model.alpha_logit.requires_grad_(False)
-                frozen_optimizer, _ = build_optimizer(model, config)
-                actual_ids = [
-                    id(parameter)
-                    for entry in frozen_optimizer.param_groups
-                    for parameter in entry["params"]
-                ]
-                expected_ids = {
-                    id(parameter) for parameter in model.parameters()
-                    if parameter.requires_grad
-                }
-                self.assertEqual(set(actual_ids), expected_ids)
-                self.assertEqual(len(actual_ids), len(expected_ids))
-                self.assertNotIn(id(model.alpha_logit), actual_ids)
-
-    def test_two_updates_equal_direct_torch_adam(self) -> None:
-        for dataset, _, _ in DATASETS:
-            with self.subTest(dataset=dataset):
-                config = _load_payload({"dataset": dataset})
-                model = _model(config, seed=7, device=torch.device("cpu"))
-                reference = copy.deepcopy(model)
-                optimizer, _ = build_optimizer(model, config)
-                direct = torch.optim.Adam(
-                    reference.parameters(), lr=config.learning_rate
+                recorded = optimizer_metadata(optimizer)
+                self.assertEqual(recorded["parameter_group_count"], 2)
+                self.assertEqual(
+                    [group["learning_rate"] for group in recorded["groups"]],
+                    [1e-5, 1e-4],
                 )
-                for step in range(2):
-                    # Identical synthetic gradients exercise every parameter without
-                    # another full-model forward/backward smoke test.
-                    for index, (parameter, expected) in enumerate(zip(
-                        model.parameters(), reference.parameters()
-                    )):
-                        value = ((index + 3 * step) % 11 - 5) * 0.01
-                        parameter.grad = torch.full_like(parameter, value)
-                        expected.grad = parameter.grad.clone()
-                    optimizer.step()
-                    direct.step()
-                    for (name, parameter), (_, expected) in zip(
-                        model.named_parameters(), reference.named_parameters()
-                    ):
-                        self.assertTrue(torch.equal(parameter, expected), name)
-                        self.assertTrue(torch.equal(
-                            optimizer.state[parameter]["exp_avg"],
-                            direct.state[expected]["exp_avg"],
-                        ), name)
-                        self.assertTrue(torch.equal(
-                            optimizer.state[parameter]["exp_avg_sq"],
-                            direct.state[expected]["exp_avg_sq"],
-                        ), name)
+                self.assertEqual(
+                    sum(group["parameter_count"] for group in recorded["groups"]),
+                    846229,
+                )
+
+    def test_two_updates_match_original_grouped_adam(self) -> None:
+        config = load_experiment_config(ROOT / "configs/csi300.yaml")
+        model = _model(config, seed=7, device=torch.device("cpu"))
+        reference = copy.deepcopy(model)
+        optimizer, _ = build_optimizer(model, config)
+        fast = set(reference.g1_module_parameter_names()) | set(
+            reference.condition_parameter_names()
+        )
+        direct = torch.optim.Adam([
+            {"params": [p for n, p in reference.named_parameters() if n not in fast],
+             "lr": 1e-5},
+            {"params": [p for n, p in reference.named_parameters() if n in fast],
+             "lr": 1e-4},
+        ])
+        for step in range(2):
+            for index, (parameter, expected) in enumerate(zip(
+                model.parameters(), reference.parameters()
+            )):
+                value = ((index + 3 * step) % 11 - 5) * 0.01
+                parameter.grad = torch.full_like(parameter, value)
+                expected.grad = parameter.grad.clone()
+            optimizer.step()
+            direct.step()
+            for (name, parameter), (_, expected) in zip(
+                model.named_parameters(), reference.named_parameters()
+            ):
+                self.assertTrue(torch.equal(parameter, expected), name)
+                self.assertTrue(torch.equal(
+                    optimizer.state[parameter]["exp_avg"],
+                    direct.state[expected]["exp_avg"],
+                ), name)
+                self.assertTrue(torch.equal(
+                    optimizer.state[parameter]["exp_avg_sq"],
+                    direct.state[expected]["exp_avg_sq"],
+                ), name)
 
 
 if __name__ == "__main__":

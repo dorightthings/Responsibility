@@ -1,17 +1,21 @@
-name: responsibility
+# New primary PC: Windows x64 or WSL2 Linux x64, RTX 5070 Ti.
+# Target-hardware validation is still required: see docs/ENVIRONMENT.md.
+# Keep scientific dependencies in ONE pip transaction so Qlib cannot silently
+# upgrade the pinned numpy/pandas/scipy versions during environment creation.
+name: responsibility-rtx50
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
 dependencies:
-  - python=3.8.20
+  - python=3.10
   - pip
-  - pytorch=2.1.2
-  - pytorch-cuda=11.8
-  - numpy=1.23.5
-  - pandas=1.5.3
-  - scipy=1.10.1
-  - scikit-learn=1.3.2
-  - pyyaml=6.0.2
   - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch==2.7.1+cu128
+      - numpy==1.23.5
+      - pandas==1.5.3
+      - scipy==1.10.1
+      - scikit-learn==1.3.2
+      - PyYAML==6.0.2
       - pyqlib==0.9.7
+      - mlflow==2.17.2
+      - cvxpy==1.5.2

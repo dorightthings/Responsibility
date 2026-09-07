@@ -1,11 +1,10 @@
-schema_version: responsibility-experiment-v3
+schema_version: responsibility-experiment-v1
 dataset: short_csi300
 beta: 5.0
 benchmark: SH000300
 bridge_date: "2020-06-30"
 
 model:
-  # RRCA includes four learned memory coefficients; no separate memory settings.
   d_feat: 158
   d_model: 256
   t_nhead: 4
@@ -23,7 +22,10 @@ training:
   max_epochs: 150
   smoke_epochs: 2
   threshold: 0.95
-  learning_rate: 2.0e-5
+  base_learning_rate: 1.0e-5
+  crfr_learning_rate: 1.0e-4
+  rrca_adapter_learning_rate: 1.0e-5
+  rrca_condition_learning_rate: 1.0e-4
   gradient_clip_value: 3.0
   selection_temperature_start: 1.0
   selection_temperature_end: 0.5

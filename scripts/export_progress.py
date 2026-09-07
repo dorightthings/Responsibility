@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export a small, path-free experiment summary that is safe to commit to Git."""
+"""Export a small, path-free local experiment summary for personal archiving."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RESULTS_ROOT = REPOSITORY_ROOT / "results/experiments"
+DEFAULT_RESULTS_ROOT = REPOSITORY_ROOT / "outputs/progress"
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:

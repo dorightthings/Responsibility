@@ -23,7 +23,7 @@
 
 ## Python 科学计算依赖
 
-运行环境还依赖 PyTorch、NumPy、pandas、SciPy、scikit-learn 和 PyYAML。各依赖分别受其自身许可证约束，完整版本见 `environment.yml` 和 `pyproject.toml`。
+运行环境还依赖 PyTorch、NumPy、pandas、SciPy、scikit-learn 和 PyYAML。各依赖分别受其自身许可证约束，新电脑的关键版本见 `environment.yml` 和 `pyproject.toml`，旧服务器配置见 `envs/server-legacy.yml`。完整安装版本以本机环境记录为准。
 
 ## 数据与模型产物
 

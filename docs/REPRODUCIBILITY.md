@@ -1,56 +1,61 @@
-# 跨机器实验约定
+# 新机器实验约定
 
-本仓库提供相同的代码、配置和数据起点，方便不同机器分别开展改进实验；不要求两端同步训练，也不要求结果逐位或数值相同。
+本仓库提供分组学习率版的开发起点，不要求异机结果相同。
+当前发布不包含旧结果；比较以新主力机实际生成的结果为准。
 
-## 固定协议
+## 当前方法身份
 
-- 数据：`short_csi300`、`short_csi800_direct`；no-purge 边界。
-- seeds：`0,1,2,3,4`。
-- 训练：Adam；最多 150 epochs；首次日均 TrainMSE `<=0.95` 时停止。
-- 标签：按日去除上下各 2.5% 极端值，再做横截面样本标准差 z-score。
-- 模型：CRFR＋stock-specific RRCA＋四机制时间记忆，总参数量 846233；保留原路由梯度及原参数初始化，不使用 detach 或新的选择头初始化方案。
-- 记忆：四个零初始化的可学习 logit，sigmoid 后初值均为 0.5；在源上下文与原机制变换之间做窗口内递推，每次调用重置记忆。
-- 学习率：仅使用 `training.learning_rate`；CSI300 为 `2e-5`，CSI800 为 `1e-5`。主干、CRFR、RRCA body、condition 与记忆参数全部放入同一个 Adam 参数组，共用固定学习率，不使用模块级学习率或学习率调度器。
-- 责任选择温度：从 `1.0` 线性退火至 `0.5`，前 10 epochs 完成。
-- 回测：Top30/Drop30；headline 为 `excess_return_without_cost` AR/IR。
+- 模型/优化器来源：`e7bcbb9` 的 CRFR＋stock-specific RRCA。
+- 不含四机制时间记忆，不使用路由 detach，不改选择头初始化。
+- 总参数量 846229。
+- 一个 Adam，两个实际参数组：主干＋RRCA adapters 为 `1e-5`；
+  CRFR＋RRCA rho 为 `1e-4`。两个数据集设置相同，没有学习率调度器。
+- 配置保留原四个学习率字段，加载器拒绝统一学习率版的 `training.learning_rate`，
+  避免错误配置被静默忽略。
+- 当前协议标识：`responsibility-crfr-rrca-grouped-lr-portable-v4`。
+- `60e5a58` 和 `9f70c7d` 是不同版本，不混用配置或记忆版 checkpoint。
 
-## 新机器启动顺序
+## 数据与训练
 
-1. 使用 `environment.yml` 创建冻结环境；
-2. 下载数据并运行 `scripts/verify_data.py`；
-3. 运行 CSI300 seed0 的 smoke；
-4. smoke 成功后按需运行配置；需要建立五 seed 参考结果时，运行两个数据集各五 seed；
-5. 对完整 prediction 运行冻结 Qlib 回测；
-6. 汇总 IC、ICIR、RankIC、RankICIR、AR 和 IR 的逐 seed 数值、均值及 population standard deviation。
+| 项目 | 约定 |
+| --- | --- |
+| 数据集 | CSI300、CSI800 |
+| 内部标识 | short_csi300、short_csi800_direct |
+| train | 2008-01-02—2020-03-31 |
+| valid | 2020-04-01—2020-06-30 |
+| test | 2020-07-01—2022-12-30，共611日 |
+| bridge | 2020-06-30 |
+| 边界 / lookback | no-purge / 8 |
+| seeds | 0、1、2、3、4 |
+| 原始标签 | Ref($close, -5) / Ref($close, -1) - 1 |
+| 训练标签处理 | 按日去除上下各2.5%后，按截面样本标准差z-score |
+| 市场门beta | CSI300为5，CSI800为2 |
+| 停止方式 | 最多150 epochs，首次日均TrainMSE <= 0.95停止 |
+| 梯度裁剪 | clip value 3.0 |
+| 责任选择温度 | 从1.0线性退火至0.5，前10 epochs完成 |
 
-## 完成条件
+验证和测试保留股票样本，仅在计算指标时屏蔽缺失标签。
+CSI800 沿用冻结 provider 的直接 CSI800 定义及其早期历史成分截断，
+不改成重新合成的 CSI300＋CSI500 股票池。
 
-一次正式任务至少应留下：
+## 评价
 
-- 完整命令、配置和环境版本；
-- `optimizer.json`：实际学习率、参数组数量和作用范围；
-- `result.json` 的 `memory` 字段：记忆模式、参数数目、初始及最终四个系数；
-- seed、设备和起止时间；
-- 训练历史与停止轮次；
-- 单一选定 checkpoint；
-- validation、bridge 和 test prediction；
-- 逐日 IC/RankIC；
-- Top30/Drop30 回测文件；
-- `result.json` 和 `DONE` 或明确的 `FAILED`；
-- 失败重试使用新的 attempt/目录，不覆盖旧产物。
+统一记录 IC、ICIR、RankIC、RankICIR、AR、IR。
+回测使用 Qlib 0.9.7、TopkDropoutStrategy(topk=30, n_drop=30)、
+close 成交价，AR/IR 为 `excess_return_without_cost`。
+基准指数为 CSI300: SH000300、CSI800: SH000906。
+每个数据集按五种子计算均值和总体标准差（ddof=0）。
 
-## 可移植性边界
+## 本机保存的产物
 
-- 冻结 pickle 依赖 Python、pandas 和 Qlib 的对象兼容性，优先使用给定版本。
-- 不同 GPU、驱动、CUDA、BLAS 或 Qlib 进程遍历顺序可能引入浮点差异。
-- 数据集专用注意力加速只对冻结形状成立；更换数据后必须退回通用实现或重新验证。
-- 当前 24 GiB GPU 已验证；显存更小的机器应保持单任务并发，必要时先仅运行 CSI300 smoke。
-- Qlib provider 的日历、股票字段或指数数据不同会使 AR/IR 改变，即便 prediction 完全相同。
+正式任务至少保存命令、配置、环境与设备、seed、训练历史、停止轮数、
+checkpoint、预测、逐日指标、回测、最终退出状态。
+`optimizer.json` 记录实际学习率分组。
+所有输出进入独立 `outputs/` 子目录；不上传结果，不覆盖旧运行目录。
+失败任务可以在新 attempt/目录重新执行。
 
-## 证据标记
+默认先在单张卡上排队；`--cpu-data-cache` 只改变缓存位置，不改变完整日截面。
+不要因换机器而改标签、股票池、beta、停止规则或回测策略。
 
-当前方法是在同一测试期被重复评价后选出的开发路线，因此相关数值必须标记为 `development/repeated-test`。如果要声称独立验证，应冻结方法后使用未参与开发的新时间窗口或新数据集。
-
-当前四机制记忆版的六指标均值、总体标准差（`ddof=0`）、逐 seed 数值和协议见 [results/reference_mechanism_memory/](../results/reference_mechanism_memory/)。
-[results/reference_uniform_lr/](../results/reference_uniform_lr/) 和 [results/reference/](../results/reference/) 分别原样保留无记忆统一学习率、历史分组学习率结果，不作为当前实现的数值参考。
-数据包及构建代码不变。旧无记忆 checkpoint 缺少四个记忆参数，应使用旧提交 `60e5a58` 运行旧模型，不静默补参数后混报结果。新实验分别保存到自己的输出目录和分支，不覆盖旧产物。
+同一测试期已在开发中反复评价；新电脑重新训练仍属于 development/repeated-test，
+不宣称它是未见测试期的独立验证。

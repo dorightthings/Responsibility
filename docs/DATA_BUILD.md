@@ -1,7 +1,10 @@
 # 数据获取与重建
 
-本项目支持两种数据准备方式。对于两台个人机器联动，推荐第一种；第二种用于以后
+本项目支持两种数据准备方式。迁移到新主力机时推荐第一种；第二种用于以后
 修改数据区间、股票池或责任特征时重新生成。
+
+以下多行命令使用 Bash/WSL 格式；在原生 Windows 终端中请去掉行末反斜杠，
+将同一命令合并成一行执行。新机器的环境安装见 [环境说明](ENVIRONMENT.md)。
 
 ## 方式一：直接使用已生成的数据包
 
@@ -84,7 +87,7 @@ python scripts/prepare_data.py \
 ```bash
 python scripts/package_data.py \
   --data-root data \
-  --output ../责任机制股票预测_实验数据包_v2.tar.gz
+  --output outputs/archives/责任机制股票预测_实验数据包_v2.tar.gz
 ```
 
 命令会同时生成 `.sha256` 文件。数据包和 SHA 文件上传个人网盘即可；不要把数据包、

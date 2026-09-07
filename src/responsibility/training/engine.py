@@ -30,7 +30,7 @@ from .io import atomic_csv, atomic_json, atomic_text, utc_now
 from .metrics import daily_metrics, labels_from_sampler, normalize_prediction
 
 
-PROTOCOL = "responsibility-crfr-rrca-mechanism-memory-uniform-lr-portable-v3"
+PROTOCOL = "responsibility-crfr-rrca-grouped-lr-portable-v4"
 
 
 def set_global_seed(seed: int) -> None:
@@ -93,24 +93,20 @@ def _parameter_names(model: torch.nn.Module, method: str) -> Tuple[str, ...]:
 def build_optimizer(
     model: torch.nn.Module, config: ExperimentConfig
 ) -> Tuple[torch.optim.Optimizer, Dict[str, Any]]:
-    """Use one Adam group; component names below are only parameter counts."""
-    if not math.isfinite(config.learning_rate) or config.learning_rate <= 0.0:
-        raise ValueError("learning_rate must be positive and finite")
     named = list(model.named_parameters())
     all_names = {name for name, _ in named}
     g1_names = set(_parameter_names(model, "g1_module_parameter_names"))
     context_names = set(_parameter_names(model, "context_body_parameter_names"))
     condition_names = set(_parameter_names(model, "condition_parameter_names"))
-    memory_names = set(_parameter_names(model, "memory_module_parameter_names"))
-    groups = (g1_names, context_names, condition_names, memory_names)
-    if any(groups[i] & groups[j] for i in range(len(groups)) for j in range(i + 1, len(groups))):
-        raise ValueError("model diagnostic parameter groups overlap")
+    groups = (g1_names, context_names, condition_names)
+    if any(groups[i] & groups[j] for i in range(3) for j in range(i + 1, 3)):
+        raise ValueError("CRFR, RRCA adapter and RRCA condition groups overlap")
     unknown = set().union(*groups) - all_names
     if unknown:
         raise ValueError("model parameter groups name unknown tensors: %s" % sorted(unknown))
     master_names = all_names - set().union(*groups)
-    if not all((master_names, *groups)):
-        raise ValueError("all model components must have named parameters")
+    if not all((master_names, g1_names, context_names, condition_names)):
+        raise ValueError("all four released parameter groups must be non-empty")
 
     def parameters(names: set) -> List[torch.nn.Parameter]:
         return [parameter for name, parameter in named if name in names]
@@ -119,13 +115,22 @@ def build_optimizer(
     context_parameters = parameters(context_names)
     g1_parameters = parameters(g1_names)
     condition_parameters = parameters(condition_names)
-    memory_parameters = parameters(memory_names)
-    trainable_parameters = [
-        parameter for _, parameter in named if parameter.requires_grad
-    ]
-    if not trainable_parameters:
-        raise ValueError("the model has no trainable parameters")
-    optimizer = torch.optim.Adam(trainable_parameters, lr=config.learning_rate)
+    if config.crfr_learning_rate != config.rrca_condition_learning_rate:
+        raise ValueError("the released CRFR and RRCA rho learning rates must match")
+    optimizer = torch.optim.Adam(
+        [
+            {
+                "params": master_parameters + context_parameters,
+                "lr": config.base_learning_rate,
+                "group_name": "backbone_and_rrca_adapters",
+            },
+            {
+                "params": g1_parameters + condition_parameters,
+                "lr": config.crfr_learning_rate,
+                "group_name": "crfr_and_rrca_rho",
+            },
+        ]
+    )
     counts = {
         "total": int(sum(parameter.numel() for _, parameter in named)),
         "backbone": int(sum(parameter.numel() for parameter in master_parameters)),
@@ -136,11 +141,26 @@ def build_optimizer(
         "rrca_condition": int(
             sum(parameter.numel() for parameter in condition_parameters)
         ),
-        "rrca_memory": int(sum(parameter.numel() for parameter in memory_parameters)),
     }
     if sum(counts[key] for key in counts if key != "total") != counts["total"]:
         raise ValueError("parameter groups do not cover the full model")
     return optimizer, counts
+
+
+def optimizer_metadata(optimizer: torch.optim.Optimizer) -> Dict[str, Any]:
+    """Record actual parameter groups without changing the update rule."""
+    return {
+        "name": type(optimizer).__name__,
+        "parameter_group_count": len(optimizer.param_groups),
+        "groups": [
+            {
+                "name": group["group_name"],
+                "learning_rate": float(group["lr"]),
+                "parameter_count": sum(p.numel() for p in group["params"]),
+            }
+            for group in optimizer.param_groups
+        ],
+    }
 
 
 def drop_extreme_and_zscore(label: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -330,22 +350,7 @@ def train_one_seed(
 
     model = _model(config, seed, device)
     optimizer, parameter_counts = build_optimizer(model, config)
-    optimizer_metadata = {
-        "name": "Adam",
-        "learning_rate": float(optimizer.param_groups[0]["lr"]),
-        "parameter_group_count": len(optimizer.param_groups),
-        "trainable_parameter_count": int(
-            sum(
-                parameter.numel()
-                for parameter in optimizer.param_groups[0]["params"]
-            )
-        ),
-        "scope": "all_trainable_model_parameters",
-        "scheduler": None,
-        "gradient_clip_value": config.gradient_clip_value,
-        "conflict_weight": 0.0,
-    }
-    atomic_json(run_dir / "optimizer.json", optimizer_metadata)
+    atomic_json(run_dir / "optimizer.json", optimizer_metadata(optimizer))
     direction_scale, scale_payload = load_direction_scale(
         paths.direction_scale, config.dataset, device
     )
@@ -471,15 +476,7 @@ def train_one_seed(
         "seed": seed,
         "mode": mode,
         "model": "ResponsibilityModel",
-        "method": "CRFR+stock-specific RRCA+four-mechanism memory+uniform learning rate",
-        "route_detached": False,
-        "memory": {
-            "mode": model.memory_mode,
-            "parameter_count": parameter_counts["rrca_memory"],
-            "initial_coefficients": [0.5, 0.5, 0.5, 0.5],
-            "final_coefficients": model.memory_coefficients().detach().cpu().tolist(),
-            "scope": "within_each_input_window_no_cross_call_state",
-        },
+        "method": "CRFR+stock-specific RRCA",
         "selection": {
             "rule": (
                 "fixed_2_epoch_smoke"
@@ -512,7 +509,14 @@ def train_one_seed(
         },
         "metric_details": metrics,
         "parameter_counts": parameter_counts,
-        "optimizer": optimizer_metadata,
+        "optimizer": {
+            "name": "Adam",
+            "base_and_rrca_adapter_lr": config.base_learning_rate,
+            "crfr_lr": config.crfr_learning_rate,
+            "rrca_condition_lr": config.rrca_condition_learning_rate,
+            "gradient_clip_value": config.gradient_clip_value,
+            "conflict_weight": 0.0,
+        },
         "data": {
             "train": train_description,
             "valid": valid_description,

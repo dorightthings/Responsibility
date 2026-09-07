@@ -1,4 +1,4 @@
-"""Configuration validation for the uniform-learning-rate Responsibility route."""
+"""Configuration validation for the grouped-learning-rate Responsibility route."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from typing import Any, Dict, Mapping
 
 DATASET_DEFAULTS: Mapping[str, Mapping[str, Any]] = {
     "short_csi300": {
-        "learning_rate": 2e-5,
         "beta": 5.0,
         "benchmark": "SH000300",
         "bridge_date": "2020-06-30",
@@ -19,7 +18,6 @@ DATASET_DEFAULTS: Mapping[str, Mapping[str, Any]] = {
         "backtest_end_date": "2022-12-31",
     },
     "short_csi800_direct": {
-        "learning_rate": 1e-5,
         "beta": 2.0,
         "benchmark": "SH000906",
         "bridge_date": "2020-06-30",
@@ -31,13 +29,11 @@ DATASET_DEFAULTS: Mapping[str, Mapping[str, Any]] = {
 
 @dataclass(frozen=True)
 class ExperimentConfig:
-    """Validated configuration for the published uniform-LR route.
+    """Validated configuration for the grouped-LR development starting point.
 
     Scientific defaults are deliberately strict.  A changed beta, stopping
     threshold, epoch cap, or Top30/Drop30 policy is a new experiment, not a
     reproduction of the released route.
-    One positive, finite learning rate applies to every trainable parameter;
-    changing it is an explicitly recorded development experiment.
     """
 
     source_path: str
@@ -62,7 +58,10 @@ class ExperimentConfig:
     max_epochs: int = 150
     smoke_epochs: int = 2
     threshold: float = 0.95
-    learning_rate: float = 1e-5
+    base_learning_rate: float = 1e-5
+    crfr_learning_rate: float = 1e-4
+    rrca_adapter_learning_rate: float = 1e-5
+    rrca_condition_learning_rate: float = 1e-4
     gradient_clip_value: float = 3.0
     selection_temperature_start: float = 1.0
     selection_temperature_end: float = 0.5
@@ -125,7 +124,7 @@ def _pick(
 
 
 def _close(actual: float, expected: float, label: str) -> None:
-    if abs(float(actual) - float(expected)) > 1e-15:
+    if not math.isfinite(float(actual)) or abs(float(actual) - float(expected)) > 1e-15:
         raise ValueError(
             "%s=%r changes the frozen protocol; expected %r"
             % (label, actual, expected)
@@ -142,18 +141,10 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
     model = _section(payload, "model")
     training = _section(payload, "training")
     backtest = _section(payload, "backtest")
-    legacy_lr_keys = {
-        "base_learning_rate",
-        "crfr_learning_rate",
-        "rrca_adapter_learning_rate",
-        "rrca_condition_learning_rate",
-    }
-    legacy_keys = legacy_lr_keys & (set(training) | set(payload))
-    if legacy_keys:
+    if "learning_rate" in payload or "learning_rate" in training:
         raise ValueError(
-            "per-module learning rates are no longer supported: %s; "
-            "replace them with training.learning_rate for the whole model"
-            % ", ".join(sorted(legacy_keys))
+            "training.learning_rate belongs to the uniform-LR release; "
+            "use the current grouped-LR configs instead of silently mixing versions"
         )
 
     config = ExperimentConfig(
@@ -193,8 +184,13 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
         max_epochs=int(training.get("max_epochs", 150)),
         smoke_epochs=int(training.get("smoke_epochs", 2)),
         threshold=float(training.get("threshold", 0.95)),
-        learning_rate=float(
-            training.get("learning_rate", defaults["learning_rate"])
+        base_learning_rate=float(training.get("base_learning_rate", 1e-5)),
+        crfr_learning_rate=float(training.get("crfr_learning_rate", 1e-4)),
+        rrca_adapter_learning_rate=float(
+            training.get("rrca_adapter_learning_rate", 1e-5)
+        ),
+        rrca_condition_learning_rate=float(
+            training.get("rrca_condition_learning_rate", 1e-4)
         ),
         gradient_clip_value=float(training.get("gradient_clip_value", 3.0)),
         selection_temperature_start=float(
@@ -214,8 +210,14 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
 
     _close(config.beta, float(defaults["beta"]), "beta")
     _close(config.threshold, 0.95, "threshold")
-    if not math.isfinite(config.learning_rate) or config.learning_rate <= 0.0:
-        raise ValueError("training.learning_rate must be positive and finite")
+    _close(config.base_learning_rate, 1e-5, "base_learning_rate")
+    _close(config.crfr_learning_rate, 1e-4, "crfr_learning_rate")
+    _close(config.rrca_adapter_learning_rate, 1e-5, "rrca_adapter_learning_rate")
+    _close(
+        config.rrca_condition_learning_rate,
+        1e-4,
+        "rrca_condition_learning_rate",
+    )
     expected_model = {
         "d_feat": 158,
         "d_model": 256,

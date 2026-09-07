@@ -13,6 +13,8 @@ htmlcov/
 .venv/
 venv/
 env/
+.env
+.env.*
 .idea/
 .vscode/
 *.swp
@@ -31,6 +33,7 @@ data/*
 *.rar
 
 # Experiment outputs
+results/
 outputs/
 runs/
 logs/
